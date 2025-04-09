@@ -10,7 +10,7 @@ Defines a class for managing system states and transitions between them based on
    - `Speed`: Represents motor speed levels (`SPEED_LOW`, `SPEED_MEDIUM`, etc.).
 
 2. **Public Methods:**
-   - `StateMachine()`: Constructor initializes state machine variables.
+   - `StateMachine()`: Constructor initialises state machine variables.
    - `void begin()`: Prepares state machine for operation.
    - `void processEvent(Event event)`: Handles events and transitions between states.
    - `State getCurrentState() const`: Returns current state.

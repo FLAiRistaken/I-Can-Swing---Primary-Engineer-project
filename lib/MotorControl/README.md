@@ -5,10 +5,10 @@ Defines a class for controlling stepper motors connected via driver modules (e.g
 
 ### Public Methods:
 1. Constructor:
-   - `StepperDriver(uint8_t stepPin, uint8_t dirPin, uint8_t enablePin)`: Initializes with specific pins for control signals.
+   - `StepperDriver(uint8_t stepPin, uint8_t dirPin, uint8_t enablePin)`: Initialises with specific pins for control signals.
 
 2. Motor Control:
-   - `void begin()`: Configures pins as outputs and initializes motor state variables.
+   - `void begin()`: Configures pins as outputs and initialises motor state variables.
    - `void setSpeed(uint16_t stepsPerSecond)`: Sets motor speed in steps per second.
    - `void setDirection(bool clockwise)`: Sets motor direction (clockwise or counter-clockwise).
    - `void enable() / disable()`: Enables or disables motor operation.

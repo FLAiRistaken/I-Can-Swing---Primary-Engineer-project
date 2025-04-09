@@ -4,8 +4,8 @@
 This file defines the `DisplayDriver` class, which provides an interface to control an OLED display using the U8g2 library.
 
 **Public Methods:**
-- **`DisplayDriver()`**: Constructor initializes the display object.
-- **`void begin()`**: Initializes the display hardware and sets default font settings.
+- **`DisplayDriver()`**: Constructor initialises the display object.
+- **`void begin()`**: Initialises the display hardware and sets default font settings.
 - **`void clear()`**: Clears the display buffer.
 - **`void display()`**: Sends the contents of the buffer to the display hardware.
 - **`void drawText(uint8_t x, uint8_t y, const char* text)`**: Draws text at specified coordinates (x, y).
@@ -25,7 +25,7 @@ Implements all methods defined in `DisplayDriver.h`.
 
 **Key Methods:**
 1. **`begin()`**:
-   - Initializes the OLED display using U8g2 library functions.
+   - Initialises the OLED display using U8g2 library functions.
    - Sets default font to `u8g2_font_6x10_tf`.
    - Configures font height and positioning modes.
 

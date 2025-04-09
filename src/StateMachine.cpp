@@ -4,7 +4,7 @@
 StateMachine::StateMachine() : _currentState(STATE_IDLE), _currentSpeed(SPEED_OFF) {}
 
 void StateMachine::begin() {
-    // Initialize state machine
+    // Initialise state machine
     _currentState = STATE_IDLE;
     _currentSpeed = SPEED_OFF;
 }

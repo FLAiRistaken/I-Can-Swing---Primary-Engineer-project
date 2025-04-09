@@ -4,7 +4,7 @@
 Defines a class for controlling a piezo buzzer connected to an Arduino pin.
 
 **Public Methods:**
-- **`BuzzerDriver(uint8_t pin)`**: Constructor that initializes with a specific pin.
+- **`BuzzerDriver(uint8_t pin)`**: Constructor that initialises with a specific pin.
 - **`void begin()`**: Configures the pin as an output.
 - **`void playTone(uint16_t frequency, uint32_t duration)`**: Plays a single tone at a specified frequency and duration.
 - **`void playMelody(const unsigned int frequencies[], const unsigned long durations[], int count)`**: Plays a sequence of tones (melody).

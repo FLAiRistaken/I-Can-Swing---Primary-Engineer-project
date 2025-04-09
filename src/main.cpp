@@ -139,7 +139,7 @@ void updateMotors() {
 void setup() {
     Serial.begin(9600);
 
-    // Initialize components
+    // Initialise components
     buzzer.begin();
     display.begin();
     buttons.begin();

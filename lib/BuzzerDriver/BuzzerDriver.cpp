@@ -3,7 +3,7 @@
 // Constructor
 BuzzerDriver::BuzzerDriver(uint8_t pin) : _pin(pin) {}
 
-// Initialize the buzzer pin
+// Initialise the buzzer pin
 void BuzzerDriver::begin() {
     pinMode(_pin, OUTPUT);
     stop();

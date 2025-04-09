@@ -9,7 +9,7 @@ public:
     DisplayDriver();
 
     // Methods
-    // Initialize the display
+    // Initialise the display
     void begin();
 
     // Clear the display buffer
