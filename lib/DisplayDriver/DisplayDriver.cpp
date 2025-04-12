@@ -6,6 +6,7 @@ DisplayDriver::DisplayDriver() : _display(U8G2_R0, U8X8_PIN_NONE) {}
 // Setup the display
 void DisplayDriver::begin() {
     _display.begin();
+    _display.sendF("ca", 0xd5, 0xF0);
     _font = u8g2_font_6x10_tf;
     _display.setFont(_font);
     _display.setFontRefHeightExtendedText();
