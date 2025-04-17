@@ -47,7 +47,7 @@ constexpr uint16_t SPEED_HIGH = 700;
 // Timing Parameters
 constexpr unsigned long DOOR_OPEN_TIME_MS = 5000;  // Time for door to open/close
 constexpr unsigned long BUTTON_DEBOUNCE_MS = 50;   // Button debounce time
-constexpr unsigned long DISPLAY_UPDATE_MS = 250;   // Display refresh interval
+constexpr unsigned long DISPLAY_UPDATE_MS = 1000;   // Display refresh interval
 constexpr unsigned long SENSOR_CHECK_MS = 100;     // Sensor polling interval
 
 // Safety Parameters

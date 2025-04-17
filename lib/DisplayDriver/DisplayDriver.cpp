@@ -1,17 +1,38 @@
 #include "DisplayDriver.h"
+#include <Wire.h>
 
 // Constructor; initialise with no rotation and no reset pin
 DisplayDriver::DisplayDriver() : _display(U8G2_R0, U8X8_PIN_NONE) {}
 
 // Setup the display
 void DisplayDriver::begin() {
+    // Initialize with a more complete reset sequence
+    Wire.begin();
+    delay(100); // Give the display time to power up
+
     _display.begin();
-    _display.sendF("ca", 0xd5, 0xF0);
+    delay(50);  // Wait after initialization
+
+    // Turn display off then on (software reset)
+    _display.sendF("c", 0xAE); // Display off
+    delay(20);
+    _display.sendF("c", 0xAF); // Display on
+    delay(20);
+
+    // Configure essential parameters
+    _display.sendF("c", 0xA8); // Set multiplex ratio
+    _display.sendF("c", 0x3F); // 64 MUX
+
     _font = u8g2_font_6x10_tf;
     _display.setFont(_font);
     _display.setFontRefHeightExtendedText();
     _display.setFontPosTop();
     _display.setFontMode(1);
+
+    // Force complete refresh
+    _display.clearBuffer();
+    _display.sendBuffer();
+    delay(100);
 }
 
 // Clear the display buffer
@@ -21,7 +42,9 @@ void DisplayDriver::clear() {
 
 // Send the buffer contents to the display
 void DisplayDriver::display() {
+    //delayMicroseconds(100);
     _display.sendBuffer();
+    //delayMicroseconds(100);
 }
 
 // Draw text on the display at position (x, y); must be ran after clear() and before display()
