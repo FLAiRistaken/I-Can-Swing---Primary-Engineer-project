@@ -29,8 +29,8 @@ constexpr uint8_t PIN_BTN_DOOR = 26;
 
 // Sensor Pins
 constexpr uint8_t PIN_PRESSURE_SENSOR = A0;
-constexpr uint8_t PIN_ULTRASONIC1_TRIG = 30;
-constexpr uint8_t PIN_ULTRASONIC1_ECHO = 31;
+constexpr uint8_t PIN_ULTRASONIC1_TRIG = 5;
+constexpr uint8_t PIN_ULTRASONIC1_ECHO = 4;
 constexpr uint8_t PIN_ULTRASONIC2_TRIG = 32;
 constexpr uint8_t PIN_ULTRASONIC2_ECHO = 33;
 

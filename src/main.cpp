@@ -1,10 +1,12 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include "Configuration.h"
 #include "BuzzerDriver.h"
 #include "DisplayDriver.h"
 #include "ButtonManager.h"
 #include "StateMachine.h"
 #include "StepperDriver.h"
+#include "UltrasonicSensor.h"
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
@@ -15,6 +17,14 @@ StateMachine stateMachine;
 // Create stepper motor drivers
 StepperDriver stepperLeft(PIN_STEPPER1_STEP, PIN_STEPPER1_DIR, PIN_STEPPER1_ENABLE);
 StepperDriver stepperRight(PIN_STEPPER2_STEP, PIN_STEPPER2_DIR, PIN_STEPPER2_ENABLE);
+
+// Create ultrasonic sensor instances
+UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
+UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
+
+// UsS Distance values
+float frontDistance = 0.0;
+float rearDistance = 0.0;
 
 // Timing variables
 unsigned long lastDisplayUpdate = 0;
@@ -35,10 +45,10 @@ void updateDisplay() {
     sprintf(speedLine, "Speed: %s", stateMachine.getSpeedString());
     display.drawText(0, 16, speedLine);
 
-    // Show pressure sensor value
-    char pressureLine[32];
-    sprintf(pressureLine, "Pressure: %d", pressureValue);
-    display.drawText(0, 32, pressureLine);
+    // Show ultrasonic sensor values
+    char distanceLine[32];
+    sprintf(distanceLine, "Dist F:%0.1f R:%0.1f cm", frontDistance, rearDistance);
+    display.drawText(0, 32, distanceLine);
 
     display.display();
 }
@@ -91,6 +101,27 @@ void checkSensors() {
     // We'll add ultrasonic sensor code later
 }
 
+// Function to check ultrasonic sensors
+void checkUltrasonicSensors() {
+    // Measure distances
+    frontDistance = ultrasonicFront.measureDistance();
+    rearDistance = ultrasonicRear.measureDistance();
+
+    // Check for obstacles
+    if (frontDistance > 0 && frontDistance < OBSTACLE_DISTANCE_CM) {
+        // Obstacle detected in front
+        stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
+        Serial.println("Obstical detected front");
+        buzzer.beep(1500, 100); // Alert sound
+    }
+
+    if (rearDistance > 0 && rearDistance < OBSTACLE_DISTANCE_CM) {
+        // Obstacle detected behind
+        stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
+        buzzer.beep(1500, 100); // Alert sound
+    }
+}
+
 void updateMotors() {
     // Set motor speeds based on current state and speed setting
     if (stateMachine.getCurrentState() == StateMachine::STATE_SWINGING) {
@@ -138,6 +169,9 @@ void updateMotors() {
 
 void setup() {
     Serial.begin(9600);
+    Serial.println("Swing starting...");
+
+    Wire.setClock(100000);
 
     // Initialise components
     buzzer.begin();
@@ -163,21 +197,26 @@ void setup() {
 
 void loop() {
     // Check for button presses
-    handleButtons();
+    //handleButtons();
+
+    Serial.println("Loop...");
 
     // Check sensors at regular intervals
     unsigned long currentMillis = millis();
     if (currentMillis - lastSensorCheck >= SENSOR_CHECK_MS) {
         lastSensorCheck = currentMillis;
+        Serial.println("Checking ssensors");
         checkSensors();
+        checkUltrasonicSensors();
     }
 
     // Update motor control
-    updateMotors();
+    //updateMotors();
 
     // Update display at regular intervals
     if (currentMillis - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {
         lastDisplayUpdate = currentMillis;
+        Serial.println("Updating display");
         updateDisplay();
     }
 }
