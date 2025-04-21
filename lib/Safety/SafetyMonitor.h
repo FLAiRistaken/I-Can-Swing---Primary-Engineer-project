@@ -31,6 +31,8 @@ public:
     SafetyStatus checkUserPresence();
     SafetyStatus checkSystemHealth();  // For future expansion
 
+    void updateMotorStatus(bool isRunning, uint16_t currentSpeed);
+
     // Get sensor readings for display/logging
     float getFrontDistance() const;
     float getRearDistance() const;
@@ -50,10 +52,18 @@ private:
     bool _userPresent;
     SafetyStatus _currentStatus;
 
+    // Motor monitoring
+    unsigned long _lastMotionCheck;
+    uint16_t _previousSpeed;
+    uint8_t _stallCount;
+    uint8_t _maxStallCount;
+    bool _motorActive;
+
     // Safety thresholds (using constants from Configuration.h)
     const float CRITICAL_DISTANCE_CM = 10.0f;  // Emergency threshold
     const float WARNING_DISTANCE_CM = OBSTACLE_DISTANCE_CM;  // Warning threshold
 
     // Handle safety status changes
     void handleSafetyStatus(SafetyStatus newStatus);
+    SafetyStatus checkMotorOperation();
 };

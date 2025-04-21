@@ -12,7 +12,12 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _frontDistance(0.0f),
       _rearDistance(0.0f),
       _userPresent(false),
-      _currentStatus(STATUS_OK) {}
+      _currentStatus(STATUS_OK),
+      _lastMotionCheck(0),
+      _previousSpeed(0),
+      _stallCount(0),
+      _maxStallCount(3),
+      _motorActive(false) {}
 
 void SafetyMonitor::begin() {
     Serial.println("SafetyMonitor: Initialized");
@@ -142,6 +147,42 @@ void SafetyMonitor::handleSafetyStatus(SafetyStatus newStatus) {
             break;
     }
 }
+
+// Add to SafetyMonitor.cpp
+void SafetyMonitor::updateMotorStatus(bool isRunning, uint16_t currentSpeed) {
+    // Store motor status for monitoring
+    _motorActive = isRunning;
+
+    // Check for stall condition (motor active but speed not changing)
+    if (isRunning && _previousSpeed > 0 && currentSpeed == 0) {
+        _stallCount++;
+        Serial.println("SafetyMonitor: Possible motor stall detected");
+    } else {
+        // Reset stall counter if speed is changing properly
+        if (_stallCount > 0 && currentSpeed > 0) {
+            _stallCount = 0;
+        }
+    }
+
+    _previousSpeed = currentSpeed;
+}
+
+SafetyMonitor::SafetyStatus SafetyMonitor::checkMotorOperation() {
+    // Only check if motors are supposed to be active
+    if (!_motorActive) {
+        return STATUS_OK;
+    }
+
+    // Check for repeated stall conditions
+    if (_stallCount >= _maxStallCount) {
+        Serial.println("SafetyMonitor: Motor stall detected! Emergency stop required.");
+        _stallCount = 0; // Reset after triggering
+        return STATUS_EMERGENCY;
+    }
+
+    return STATUS_OK;
+}
+
 
 float SafetyMonitor::getFrontDistance() const {
     return _frontDistance;
