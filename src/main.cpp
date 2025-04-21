@@ -90,7 +90,30 @@ void handleButtons() {
             buzzer.beep(1000, 100); // Confirmation beep
         }
     }
-
+    // Handle emergency reset
+    static unsigned long emergencyResetStartTime = 0;
+    if (stateMachine.getCurrentState() == StateMachine::STATE_EMERGENCY) {
+        // First check that physical button has been reset (not pressed)
+        if (!digitalRead(PIN_EMERGENCY_STOP)) { // Assuming active LOW for emergency button
+            // Button has been physically reset, now check for software reset
+            if (buttons.isPressed(ButtonManager::BTN_STOP)) {
+                if (emergencyResetStartTime == 0) {
+                    // Start timing when button first pressed
+                    emergencyResetStartTime = millis();
+                    buzzer.beep(300, 100); // Feedback beep
+                } else if (millis() - emergencyResetStartTime > 3000) {
+                    // Button held for 3+ seconds, trigger reset
+                    stateMachine.processEvent(StateMachine::EVENT_EMERGENCY_RESET);
+                    buzzer.beep(700, 100); // Success indication
+                    delay(100);
+                    buzzer.beep(1200, 100);
+                    emergencyResetStartTime = 0;
+                }
+            } else {
+                emergencyResetStartTime = 0; // Reset timer if button released
+            }
+        }
+    }
 }
 
 void checkSensors() {
@@ -118,18 +141,32 @@ void checkUltrasonicSensors() {
     frontDistance = ultrasonicFront.measureDistance();
     rearDistance = ultrasonicRear.measureDistance();
 
-    // Check for obstacles
-    if (frontDistance > 0 && frontDistance < OBSTACLE_DISTANCE_CM) {
-        // Obstacle detected in front
-        stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
-        Serial.println("Obstical detected front");
-        buzzer.beep(1500, 100); // Alert sound
+    // Define thresholds
+    const int CRITICAL_DISTANCE_CM = 10; // Very close - emergency
+    const int WARNING_DISTANCE_CM = OBSTACLE_DISTANCE_CM; // Normal obstacle - error
+
+    // Check for critical proximity (EMERGENCY condition)
+    if ((frontDistance > 0 && frontDistance < CRITICAL_DISTANCE_CM) ||
+        (rearDistance > 0 && rearDistance < CRITICAL_DISTANCE_CM)) {
+        // Immediate danger detected - trigger emergency
+        stateMachine.processEvent(StateMachine::EVENT_EMERGENCY);
+        buzzer.playTone(2000, 500); // Urgent alert sound
+        Serial.println("CRITICAL: Object extremely close! Emergency triggered.");
+        return; // Exit after triggering emergency
     }
 
-    if (rearDistance > 0 && rearDistance < OBSTACLE_DISTANCE_CM) {
-        // Obstacle detected behind
-        stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
-        buzzer.beep(1500, 100); // Alert sound
+    // Check for obstacles (ERROR condition)
+    if ((frontDistance > CRITICAL_DISTANCE_CM && frontDistance < WARNING_DISTANCE_CM) ||
+        (rearDistance > CRITICAL_DISTANCE_CM && rearDistance < WARNING_DISTANCE_CM)) {
+        // Obstacle detected - trigger error only if not already in error/emergency
+        if (stateMachine.getCurrentState() != StateMachine::STATE_ERROR &&
+            stateMachine.getCurrentState() != StateMachine::STATE_EMERGENCY) {
+            stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
+            buzzer.beep(1500, 100); // Alert sound
+            Serial.print("WARNING: Object detected at ");
+            Serial.print((frontDistance < WARNING_DISTANCE_CM) ? frontDistance : rearDistance);
+            Serial.println(" cm");
+        }
     }
 }
 
