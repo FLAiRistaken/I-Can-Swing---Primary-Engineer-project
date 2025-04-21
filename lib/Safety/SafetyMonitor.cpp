@@ -17,10 +17,16 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _previousSpeed(0),
       _stallCount(0),
       _maxStallCount(3),
-      _motorActive(false) {}
+      _motorActive(false),
+      _obstacleHistoryIndex(0) {}
 
 void SafetyMonitor::begin() {
     Serial.println("SafetyMonitor: Initialized");
+
+    // Clear obstacle history
+    for (uint8_t i = 0; i < MAX_OBSTACLE_HISTORY; i++) {
+        _obstacleDetectionTimes[i] = 0;
+    }
     // Initial safety check
     checkSafety();
 }
@@ -57,6 +63,42 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkSafety() {
     return _currentStatus;
 }
 
+bool SafetyMonitor::detectRapidObstacleChanges() {
+    // Record the current obstacle detection
+    unsigned long currentTime = millis();
+
+    // Check if distance crosses the warning threshold
+    bool obstacleDetected = (_frontDistance > 0 && _frontDistance < WARNING_DISTANCE_CM) ||
+                            (_rearDistance > 0 && _rearDistance < WARNING_DISTANCE_CM);
+
+    // Only record changes in obstacle status
+    static bool lastObstacleStatus = false;
+    if (obstacleDetected != lastObstacleStatus) {
+        lastObstacleStatus = obstacleDetected;
+
+        // Record time of change
+        _obstacleDetectionTimes[_obstacleHistoryIndex] = currentTime;
+        _obstacleHistoryIndex = (_obstacleHistoryIndex + 1) % MAX_OBSTACLE_HISTORY;
+
+        // Count rapid changes in last 3 seconds
+        int rapidChanges = 0;
+        for (uint8_t i = 0; i < MAX_OBSTACLE_HISTORY; i++) {
+            if (_obstacleDetectionTimes[i] > 0 &&
+                currentTime - _obstacleDetectionTimes[i] < 3000) {
+                rapidChanges++;
+            }
+        }
+
+        // If more than 5 changes in 3 seconds, consider it unstable
+        if (rapidChanges > 5) {
+            Serial.println("SafetyMonitor: Multiple rapid obstacle detections!");
+            return true;
+        }
+    }
+
+    return false;
+}
+
 SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     // Get distance readings
     _frontDistance = _frontSensor->measureDistance();
@@ -66,6 +108,12 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     if ((_frontDistance > 0 && _frontDistance < CRITICAL_DISTANCE_CM) ||
         (_rearDistance > 0 && _rearDistance < CRITICAL_DISTANCE_CM)) {
         Serial.println("SafetyMonitor: CRITICAL - Object extremely close!");
+        return STATUS_EMERGENCY;
+    }
+
+    // Check for rapid obstacle changes (indicates unstable environment)
+    if (detectRapidObstacleChanges()) {
+        Serial.println("SafetyMonitor: Unstable environment detected! Emergency stop recommended.");
         return STATUS_EMERGENCY;
     }
 

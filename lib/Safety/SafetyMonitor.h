@@ -59,11 +59,17 @@ private:
     uint8_t _maxStallCount;
     bool _motorActive;
 
+    // Obstacle detection history
+    static const uint8_t MAX_OBSTACLE_HISTORY = 10;
+    unsigned long _obstacleDetectionTimes[MAX_OBSTACLE_HISTORY];
+    uint8_t _obstacleHistoryIndex;
+
     // Safety thresholds (using constants from Configuration.h)
     const float CRITICAL_DISTANCE_CM = 10.0f;  // Emergency threshold
     const float WARNING_DISTANCE_CM = OBSTACLE_DISTANCE_CM;  // Warning threshold
 
     // Handle safety status changes
     void handleSafetyStatus(SafetyStatus newStatus);
+    bool detectRapidObstacleChanges();
     SafetyStatus checkMotorOperation();
 };
