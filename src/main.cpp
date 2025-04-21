@@ -9,6 +9,11 @@
 #include "UltrasonicSensor.h"
 #include "PressureSensor.h"
 #include "ActuatorDriver.h"
+#include "SafetyMonitor.h"
+
+
+// Create SafetyMonitor instance
+SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
@@ -48,7 +53,9 @@ void updateDisplay() {
 
     // Show ultrasonic sensor values
     char distanceLine[32];
-    sprintf(distanceLine, "Dist F:%0.1f R:%0.1f cm", frontDistance, rearDistance);
+    sprintf(distanceLine, "Dist F:%0.1f R:%0.1f cm",
+        safetyMonitor.getFrontDistance(),
+        safetyMonitor.getRearDistance());
     display.drawText(0, 32, distanceLine);
 
     display.display();
@@ -235,6 +242,7 @@ void setup() {
     buzzer.begin();
     display.begin();
     buttons.begin();
+    safetyMonitor.begin();
     ultrasonicFront.begin();
     ultrasonicRear.begin();
     pressureSensor.begin();
@@ -267,7 +275,8 @@ void loop() {
     unsigned long currentMillis = millis();
     if (currentMillis - lastSensorCheck >= SENSOR_CHECK_MS) {
         lastSensorCheck = currentMillis;
-        Serial.println("Checking ssensors");
+        Serial.println("Checking sensors");
+        safetyMonitor.checkSafety();
         checkSensors();
         checkUltrasonicSensors();
     }
