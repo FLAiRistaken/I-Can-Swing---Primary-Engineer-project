@@ -51,15 +51,17 @@ void updateDisplay() {
     sprintf(speedLine, "Speed: %s", stateMachine.getSpeedString());
     display.drawText(0, 16, speedLine);
 
-    // Show ultrasonic sensor values
+    // Show ultrasonic sensor values and safety status
     char distanceLine[32];
-    sprintf(distanceLine, "Dist F:%0.1f R:%0.1f cm",
-        safetyMonitor.getFrontDistance(),
-        safetyMonitor.getRearDistance());
+    sprintf(distanceLine, "F:%0.1f R:%0.1f %s",
+            safetyMonitor.getFrontDistance(),
+            safetyMonitor.getRearDistance(),
+            safetyMonitor.getStatusString());
     display.drawText(0, 32, distanceLine);
 
     display.display();
 }
+
 
 void handleButtons() {
     buttons.update();
@@ -123,23 +125,22 @@ void handleButtons() {
     }
 }
 
-void checkSensors() {
-    // Check pressure sensor for occupancy
+// New function to replace checkSensors()
+void handleUserPresenceChanges() {
+    // Get user presence from SafetyMonitor
+    bool currentUserPresent = safetyMonitor.isUserPresent();
+
+    // For debugging and display updates
     static bool lastUserPresentState = false;
-    bool currentUserPresent = pressureSensor.isOccupied(); // Use the class method
 
     if (currentUserPresent != lastUserPresentState) {
-        lastUserPresentState = currentUserPresent;
-        stateMachine.processEvent(currentUserPresent ?
-                                  StateMachine::EVENT_PRESSURE_ON :
-                                  StateMachine::EVENT_PRESSURE_OFF);
-
         Serial.print("User presence changed: ");
         Serial.println(currentUserPresent ? "Present" : "Absent");
-        buzzer.beep(800, 50); // Optional feedback beep
+        buzzer.beep(800, 50); // Feedback beep
+        lastUserPresentState = currentUserPresent;
     }
-
 }
+
 
 
 // Function to check ultrasonic sensors
@@ -267,7 +268,7 @@ void setup() {
 
 void loop() {
     // Check for button presses
-    //handleButtons();
+    handleButtons();
 
     Serial.println("Loop...");
 
@@ -277,12 +278,14 @@ void loop() {
         lastSensorCheck = currentMillis;
         Serial.println("Checking sensors");
         safetyMonitor.checkSafety();
-        checkSensors();
-        checkUltrasonicSensors();
+        handleUserPresenceChanges();
     }
 
+    // Update door actuator
+    doorActuator.update();
+
     // Update motor control
-    //updateMotors();
+    updateMotors();
 
     // Update display at regular intervals
     if (currentMillis - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {

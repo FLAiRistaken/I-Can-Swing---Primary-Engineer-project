@@ -35,6 +35,7 @@ public:
     float getFrontDistance() const;
     float getRearDistance() const;
     bool isUserPresent() const;
+    const char* getStatusString() const;
     SafetyStatus getCurrentStatus() const;
 
 private:

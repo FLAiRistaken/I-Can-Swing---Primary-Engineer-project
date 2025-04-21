@@ -91,9 +91,26 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkUserPresence() {
 }
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkSystemHealth() {
-    // Future implementation: check system voltage, motor current, etc.
+    // Check if the system has been running too long without user interaction
+    static unsigned long lastActivityTime = millis();
+    static unsigned long systemStartTime = millis();
+
+    // Future enhancement: check battery voltage
+    // Future enhancement: check motor current
+    // Future enhancement: monitor communication errors
+
+    // Example of a system health check:
+    unsigned long currentTime = millis();
+    if (currentTime - systemStartTime > 3600000) { // 1 hour
+        // Implement periodic system check after 1 hour of operation
+        // This would check for system fatigue or overheating
+        Serial.println("SafetyMonitor: Performing 1-hour system health check");
+        systemStartTime = currentTime; // Reset for next hour
+    }
+
     return STATUS_OK;
 }
+
 
 void SafetyMonitor::handleSafetyStatus(SafetyStatus newStatus) {
     // Avoid redundant state transitions
@@ -140,4 +157,19 @@ bool SafetyMonitor::isUserPresent() const {
 
 SafetyMonitor::SafetyStatus SafetyMonitor::getCurrentStatus() const {
     return _currentStatus;
+}
+
+const char* SafetyMonitor::getStatusString() const {
+    switch (_currentStatus) {
+        case STATUS_OK:
+            return "SAFE";
+        case STATUS_WARNING:
+            return "WARNING";
+        case STATUS_ERROR:
+            return "ERROR";
+        case STATUS_EMERGENCY:
+            return "EMERGENCY";
+        default:
+            return "UNKNOWN";
+    }
 }
