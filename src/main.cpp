@@ -7,20 +7,23 @@
 #include "StateMachine.h"
 #include "StepperDriver.h"
 #include "UltrasonicSensor.h"
+#include "PressureSensor.h"
+#include "ActuatorDriver.h"
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
 DisplayDriver display;
 ButtonManager buttons;
 StateMachine stateMachine;
-
 // Create stepper motor drivers
 StepperDriver stepperLeft(PIN_STEPPER1_STEP, PIN_STEPPER1_DIR, PIN_STEPPER1_ENABLE);
 StepperDriver stepperRight(PIN_STEPPER2_STEP, PIN_STEPPER2_DIR, PIN_STEPPER2_ENABLE);
-
 // Create ultrasonic sensor instances
 UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
+PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
+ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine);
+
 
 // UsS Distance values
 float frontDistance = 0.0;
@@ -30,8 +33,6 @@ float rearDistance = 0.0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long lastSensorCheck = 0;
 
-// Sensor value
-int pressureValue = 0;
 
 void updateDisplay() {
     display.clear();
@@ -81,25 +82,35 @@ void handleButtons() {
         stateMachine.processEvent(StateMachine::EVENT_EMERGENCY);
         buzzer.playTone(2000, 1000);  // Emergency alert
     }
+    // Handle error state clearing
+    if (stateMachine.getCurrentState() == StateMachine::STATE_ERROR) {
+        if (buttons.wasPressed(ButtonManager::BTN_STOP)) {
+            Serial.println("ERROR state cleared by STOP button");
+            stateMachine.processEvent(StateMachine::EVENT_ERROR_CLEARED);
+            buzzer.beep(1000, 100); // Confirmation beep
+        }
+    }
+
 }
 
 void checkSensors() {
-    // Read pressure sensor
-    pressureValue = analogRead(PIN_PRESSURE_SENSOR);
+    // Check pressure sensor for occupancy
+    static bool lastUserPresentState = false;
+    bool currentUserPresent = pressureSensor.isOccupied(); // Use the class method
 
-    // Check if user is present in the swing
-    static bool userPresent = false;
-    bool newUserPresent = (pressureValue > PRESSURE_THRESHOLD);
-
-    if (newUserPresent != userPresent) {
-        userPresent = newUserPresent;
-        stateMachine.processEvent(userPresent ?
+    if (currentUserPresent != lastUserPresentState) {
+        lastUserPresentState = currentUserPresent;
+        stateMachine.processEvent(currentUserPresent ?
                                   StateMachine::EVENT_PRESSURE_ON :
                                   StateMachine::EVENT_PRESSURE_OFF);
+
+        Serial.print("User presence changed: ");
+        Serial.println(currentUserPresent ? "Present" : "Absent");
+        buzzer.beep(800, 50); // Optional feedback beep
     }
 
-    // We'll add ultrasonic sensor code later
 }
+
 
 // Function to check ultrasonic sensors
 void checkUltrasonicSensors() {
@@ -150,6 +161,16 @@ void updateMotors() {
 
         stepperLeft.startContinuous();
         stepperRight.startContinuous();
+    } else if (stateMachine.getCurrentState() == StateMachine::STATE_DOOR_OPENING) {
+        // Start the door opening sequence if not already moving
+        if (!doorActuator.isMoving()) {
+            doorActuator.startExtend(); // Uses default time from Configuration.h
+        }
+    } else if (stateMachine.getCurrentState() == StateMachine::STATE_DOOR_CLOSING) {
+        // Start the door closing sequence if not already moving
+        if (!doorActuator.isMoving()) {
+            doorActuator.startRetract(); // Uses default time from Configuration.h
+        }
     } else {
         stepperLeft.stop();
         stepperRight.stop();
@@ -177,9 +198,13 @@ void setup() {
     buzzer.begin();
     display.begin();
     buttons.begin();
+    ultrasonicFront.begin();
+    ultrasonicRear.begin();
+    pressureSensor.begin();
     stateMachine.begin();
     stepperLeft.begin();
     stepperRight.begin();
+    doorActuator.begin();
 
     // Set initial stepper directions (opposite for swing motion)
     stepperLeft.setDirection(true);   // Clockwise

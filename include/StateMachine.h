@@ -28,7 +28,8 @@ public:
         EVENT_DOOR_OPENED,
         EVENT_DOOR_CLOSED,
         EVENT_EMERGENCY,
-        EVENT_ERROR_CLEARED
+        EVENT_ERROR_CLEARED,
+        EVENT_EMERGENCY_RESET
     };
 
     enum Speed {
@@ -57,6 +58,7 @@ public:
 private:
     State _currentState;
     Speed _currentSpeed;
+    bool _isUserPresent; // Flag to track occupancy
 
     // Transition to a new state
     void transition(State newState);
