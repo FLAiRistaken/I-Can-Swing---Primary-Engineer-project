@@ -12,9 +12,6 @@
 #include "SafetyMonitor.h"
 
 
-// Create SafetyMonitor instance
-SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
-
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
 DisplayDriver display;
@@ -29,6 +26,8 @@ UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rea
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
 ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine);
 
+// Create SafetyMonitor instance
+SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
 
 // UsS Distance values
 float frontDistance = 0.0;
