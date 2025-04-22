@@ -18,10 +18,16 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _stallCount(0),
       _maxStallCount(3),
       _motorActive(false),
-      _obstacleHistoryIndex(0) {}
+      _obstacleHistoryIndex(0),
+      _lastWatchdogReset(0),
+      _watchdogEnabled(true) {}
 
 void SafetyMonitor::begin() {
     Serial.println("SafetyMonitor: Initialized");
+
+    // Initialize watchdog timer
+    _lastWatchdogReset = millis();
+    _watchdogEnabled = true;
 
     // Clear obstacle history
     for (uint8_t i = 0; i < MAX_OBSTACLE_HISTORY; i++) {
@@ -35,6 +41,7 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkSafety() {
     // Run all safety checks and determine most critical status
     SafetyStatus obstacleStatus = checkObstacles();
     SafetyStatus userStatus = checkUserPresence();
+    SafetyStatus motorStatus = checkMotorOperation();
     SafetyStatus systemStatus = checkSystemHealth();
 
     // Determine most severe status
@@ -147,13 +154,21 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkSystemHealth() {
     // Check if the system has been running too long without user interaction
     static unsigned long lastActivityTime = millis();
     static unsigned long systemStartTime = millis();
+    unsigned long currentTime = millis();
 
     // Future enhancement: check battery voltage
     // Future enhancement: check motor current
     // Future enhancement: monitor communication errors
 
+    _lastWatchdogReset = currentTime;
+
+    // Check for system inactivity (in a real system, this would trigger if no reset occurs)
+    if (_watchdogEnabled && (currentTime - _lastWatchdogReset > WATCHDOG_TIMEOUT_MS)) {
+        Serial.println("SafetyMonitor: WATCHDOG TIMEOUT - System unresponsive!");
+        return STATUS_EMERGENCY;
+    }
+
     // Example of a system health check:
-    unsigned long currentTime = millis();
     if (currentTime - systemStartTime > 3600000) { // 1 hour
         // Implement periodic system check after 1 hour of operation
         // This would check for system fatigue or overheating

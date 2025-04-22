@@ -64,6 +64,11 @@ private:
     unsigned long _obstacleDetectionTimes[MAX_OBSTACLE_HISTORY];
     uint8_t _obstacleHistoryIndex;
 
+    // Software watchdog
+    unsigned long _lastWatchdogReset;
+    bool _watchdogEnabled;
+    const unsigned long WATCHDOG_TIMEOUT_MS = 5000; // 5 second timeout
+
     // Safety thresholds (using constants from Configuration.h)
     const float CRITICAL_DISTANCE_CM = 10.0f;  // Emergency threshold
     const float WARNING_DISTANCE_CM = OBSTACLE_DISTANCE_CM;  // Warning threshold

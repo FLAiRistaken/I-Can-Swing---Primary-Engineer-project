@@ -197,6 +197,7 @@ void updateMotors() {
                 speedValue = 0;
                 break;
         }
+        safetyMonitor.updateMotorStatus(true, speedValue);
 
         stepperLeft.setSpeed(speedValue);
         stepperRight.setSpeed(speedValue);
@@ -217,6 +218,7 @@ void updateMotors() {
             doorActuator.startRetract(); // Uses default time from Configuration.h
         }
     } else {
+        safetyMonitor.updateMotorStatus(false, 0);
         stepperLeft.stop();
         stepperRight.stop();
 
