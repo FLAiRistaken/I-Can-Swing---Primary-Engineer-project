@@ -49,14 +49,17 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkSafety() {
 
     if (obstacleStatus == STATUS_EMERGENCY ||
         userStatus == STATUS_EMERGENCY ||
+        motorStatus == STATUS_EMERGENCY ||
         systemStatus == STATUS_EMERGENCY) {
         newStatus = STATUS_EMERGENCY;
     } else if (obstacleStatus == STATUS_ERROR ||
                userStatus == STATUS_ERROR ||
+               motorStatus == STATUS_EMERGENCY ||
                systemStatus == STATUS_ERROR) {
         newStatus = STATUS_ERROR;
     } else if (obstacleStatus == STATUS_WARNING ||
                userStatus == STATUS_WARNING ||
+               motorStatus == STATUS_EMERGENCY ||
                systemStatus == STATUS_WARNING) {
         newStatus = STATUS_WARNING;
     }
