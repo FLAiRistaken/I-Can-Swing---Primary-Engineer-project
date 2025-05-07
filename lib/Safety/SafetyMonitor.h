@@ -77,4 +77,22 @@ private:
     void handleSafetyStatus(SafetyStatus newStatus);
     bool detectRapidObstacleChanges();
     SafetyStatus checkMotorOperation();
+
+    // Swing phase tracking
+    enum SwingPhase {
+        PHASE_FORWARD,     // Moving forward
+        PHASE_BACKWARD,    // Moving backward
+        PHASE_UNKNOWN      // Initial or unknown position
+    };
+    SwingPhase _currentSwingPhase;
+    unsigned long _lastPhaseChange;
+    float _lastFrontDistance;
+    float _lastRearDistance;
+
+    // For expected ground detection filtering
+    bool isReadingExpectedGround(float distance, float previosuDistance);
+
+    // Dynamic thresolds
+    float getEffectiveWarningDistance() const;
+    float getEffectiveCriticalDistance() const;
 };

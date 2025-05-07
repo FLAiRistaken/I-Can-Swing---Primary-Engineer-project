@@ -20,7 +20,11 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _motorActive(false),
       _obstacleHistoryIndex(0),
       _lastWatchdogReset(0),
-      _watchdogEnabled(true) {}
+      _watchdogEnabled(true),
+      _currentSwingPhase(PHASE_UNKNOWN),
+      _lastPhaseChange(0),
+      _lastFrontDistance(0.0f),
+      _lastRearDistance(0.0f) {}
 
 void SafetyMonitor::begin() {
     Serial.println("SafetyMonitor: Initialized");
@@ -114,11 +118,69 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     _frontDistance = _frontSensor->measureDistance();
     _rearDistance = _rearSensor->measureDistance();
 
-    // Check for critical proximity (EMERGENCY)
-    if ((_frontDistance > 0 && _frontDistance < CRITICAL_DISTANCE_CM) ||
-        (_rearDistance > 0 && _rearDistance < CRITICAL_DISTANCE_CM)) {
-        Serial.println("SafetyMonitor: CRITICAL - Object extremely close!");
+    // Store previous readings for phase detection
+    static float lastFrontDistance = _frontDistance;
+    static float lastRearDistance = _rearDistance;
+
+    // --- Position-Aware Filtering ---
+    // Track swing phase if in swinging state
+    if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
+        // Track swing phase based on distance changes
+        if (_frontDistance > lastFrontDistance + 5.0f) {
+            // Distance increasing - swing moving away
+            if (_currentSwingPhase != PHASE_BACKWARD) {
+                _currentSwingPhase = PHASE_BACKWARD;
+                _lastPhaseChange = millis();
+            }
+        } else if (_frontDistance < lastFrontDistance - 5.0f) {
+            // Distance decreasing - swing moving toward
+            if (_currentSwingPhase != PHASE_FORWARD) {
+                _currentSwingPhase = PHASE_FORWARD;
+                _lastPhaseChange = millis();
+            }
+        }
+
+        // Filter expected ground readings based on swing phase
+        if (isReadingExpectedGround(_frontDistance, lastFrontDistance)) {
+            Serial.println("SafetyMonitor: Filtering expected ground detection on front sensor");
+            _frontDistance = 400.0f; // Set to max range (filtered)
+        }
+
+        if (isReadingExpectedGround(_rearDistance, lastRearDistance)) {
+            Serial.println("SafetyMonitor: Filtering expected ground detection on rear sensor");
+            _rearDistance = 400.0f; // Set to max range (filtered)
+        }
+    }
+
+    // Store current readings for next comparison
+    lastFrontDistance = _frontDistance;
+    lastRearDistance = _rearDistance;
+
+    // --- Dynamic Safety Thresholds ---
+    // Get dynamic thresholds based on current state
+    float effectiveCritical = getEffectiveCriticalDistance();
+    float effectiveWarning = getEffectiveWarningDistance();
+
+    // Check for critical proximity using dynamic threshold
+    if ((_frontDistance > 0 && _frontDistance < effectiveCritical) ||
+        (_rearDistance > 0 && _rearDistance < effectiveCritical)) {
+        Serial.print("SafetyMonitor: CRITICAL - Object extremely close! Distance: ");
+        Serial.print((_frontDistance < effectiveCritical) ? _frontDistance : _rearDistance);
+        Serial.print(" cm, Threshold: ");
+        Serial.print(effectiveCritical);
+        Serial.println(" cm");
         return STATUS_EMERGENCY;
+    }
+
+    // Check for obstacles using dynamic threshold
+    if ((_frontDistance > effectiveCritical && _frontDistance < effectiveWarning) ||
+        (_rearDistance > effectiveCritical && _rearDistance < effectiveWarning)) {
+        Serial.print("SafetyMonitor: WARNING - Object detected at ");
+        Serial.print((_frontDistance < effectiveWarning) ? _frontDistance : _rearDistance);
+        Serial.print(" cm, Threshold: ");
+        Serial.print(effectiveWarning);
+        Serial.println(" cm");
+        return STATUS_ERROR;
     }
 
     // Check for rapid obstacle changes (indicates unstable environment)
@@ -127,16 +189,43 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
         return STATUS_EMERGENCY;
     }
 
-    // Check for obstacles (ERROR)
-    if ((_frontDistance > CRITICAL_DISTANCE_CM && _frontDistance < WARNING_DISTANCE_CM) ||
-        (_rearDistance > CRITICAL_DISTANCE_CM && _rearDistance < WARNING_DISTANCE_CM)) {
-        Serial.print("SafetyMonitor: WARNING - Object detected at ");
-        Serial.print((_frontDistance < WARNING_DISTANCE_CM) ? _frontDistance : _rearDistance);
-        Serial.println(" cm");
-        return STATUS_ERROR;
+    return STATUS_OK;
+}
+
+bool SafetyMonitor::isReadingExpectedGround(float distance, float previousDistance) {
+    // Expected ground pattern: rapid decrease to fixed short distance at bottom of swing
+    bool isExpectedPattern = false;
+
+    // If distance suddenly dropped to <40cm during swing
+    if (distance < 40.0f && previousDistance > 80.0f &&
+        _stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
+
+        // If we're in the forward phase (swing moving toward sensor mounting point)
+        if (_currentSwingPhase == PHASE_FORWARD) {
+            // Likely detecting the ground at bottom of swing arc
+            isExpectedPattern = true;
+        }
     }
 
-    return STATUS_OK;
+    return isExpectedPattern;
+}
+
+float SafetyMonitor::getEffectiveWarningDistance() const {
+    // When swinging, use a smaller threshold to account for ground detection
+    if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
+        // Reduce warning threshold by 30% during swinging
+        return WARNING_DISTANCE_CM * 0.7f;
+    }
+    return WARNING_DISTANCE_CM;
+}
+
+float SafetyMonitor::getEffectiveCriticalDistance() const {
+    // Critical distance is less affected but still adjustable
+    if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
+        // Reduce critical threshold by 10% during swinging
+        return CRITICAL_DISTANCE_CM * 0.9f;
+    }
+    return CRITICAL_DISTANCE_CM;
 }
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkUserPresence() {
