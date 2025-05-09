@@ -241,17 +241,41 @@ void setup() {
     Wire.setClock(100000);
 
     // Initialise components
+    Serial.println("Initialising buzzer...");
     buzzer.begin();
+    Serial.println("Buzzer initialised");
+    Serial.println("Initialising display...");
     display.begin();
+    Serial.println("Display initialised");
+    Serial.println("Initialising buttons...");
     buttons.begin();
+    Serial.println("Buttons initialised");
+    Serial.println("Initialising safetyMonitor...");
     safetyMonitor.begin();
+    Serial.println("safetyMonitor initialised");
+    Serial.println("Initialising ultrasonicFront...");
     ultrasonicFront.begin();
+    Serial.println("ultrasonicFront initialised");
+    delay(50);
+    Serial.println("Initialising ultrasonicRear...");
     ultrasonicRear.begin();
+    Serial.println("ultrasonicRear initialised");
+    delay(50);
+    Serial.println("Initialising pressureSensor...");
     pressureSensor.begin();
+    Serial.println("pressureSensor initialised");
+    Serial.println("Initialising stateMachine...");
     stateMachine.begin();
-    stepperLeft.begin();
-    stepperRight.begin();
+    Serial.println("stateMachine initialised");
+    //Serial.println("Initialising stepperLeft...");
+    //stepperLeft.begin();
+    //Serial.println("stepperLeft initialised");
+    //Serial.println("Initialising stepperRight...");
+    //stepperRight.begin();
+    //Serial.println("stepperRight initialised");
+    Serial.println("Initialising doorActuator...");
     doorActuator.begin();
+    Serial.println("doorActuator initialised");
 
     // Set initial stepper directions (opposite for swing motion)
     stepperLeft.setDirection(true);   // Clockwise
@@ -269,7 +293,7 @@ void setup() {
 
 void loop() {
     // Check for button presses
-    handleButtons();
+    //handleButtons();
 
     Serial.println("Loop...");
 

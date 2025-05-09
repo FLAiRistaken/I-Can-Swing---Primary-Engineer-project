@@ -116,6 +116,7 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
 SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     // Get distance readings
     _frontDistance = _frontSensor->measureDistance();
+    delay(10);
     _rearDistance = _rearSensor->measureDistance();
 
     // Store previous readings for phase detection
@@ -160,6 +161,13 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     // Get dynamic thresholds based on current state
     float effectiveCritical = getEffectiveCriticalDistance();
     float effectiveWarning = getEffectiveWarningDistance();
+
+    Serial.print("_frontDistance: ");
+    Serial.print(_frontDistance);
+    Serial.println(" cm");
+    Serial.print("_rearDistance: ");
+    Serial.print(_rearDistance);
+    Serial.println(" cm");
 
     // Check for critical proximity using dynamic threshold
     if ((_frontDistance > 0 && _frontDistance < effectiveCritical) ||
@@ -303,7 +311,6 @@ void SafetyMonitor::handleSafetyStatus(SafetyStatus newStatus) {
     }
 }
 
-// Add to SafetyMonitor.cpp
 void SafetyMonitor::updateMotorStatus(bool isRunning, uint16_t currentSpeed) {
     // Store motor status for monitoring
     _motorActive = isRunning;

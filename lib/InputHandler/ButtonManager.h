@@ -28,12 +28,12 @@ public:
 
 private:
     uint8_t _pins[BTN_COUNT] = {
-        PIN_BTN_START,
-        PIN_BTN_STOP,
-        PIN_BTN_SPEED_UP,
-        PIN_BTN_SPEED_DOWN,
-        PIN_BTN_DOOR,
-        PIN_EMERGENCY_STOP
+        PIN_BTN_START,      // 12
+        PIN_BTN_STOP,       // 13
+        PIN_BTN_SPEED_UP,   // A0
+        PIN_BTN_SPEED_DOWN, // A1
+        PIN_BTN_DOOR,       // A2
+        PIN_EMERGENCY_STOP  // 2
     };
 
     bool _currentState[BTN_COUNT] = {false};
