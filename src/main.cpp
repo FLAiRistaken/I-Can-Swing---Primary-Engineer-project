@@ -18,8 +18,8 @@ DisplayDriver display;
 ButtonManager buttons;
 StateMachine stateMachine;
 // Create stepper motor drivers
-StepperDriver stepperLeft(PIN_STEPPER1_STEP, PIN_STEPPER1_DIR, PIN_STEPPER1_ENABLE);
-StepperDriver stepperRight(PIN_STEPPER2_STEP, PIN_STEPPER2_DIR, PIN_STEPPER2_ENABLE);
+StepperDriver stepperLeft(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+StepperDriver stepperRight(PIN_STEPPER2_IN1, PIN_STEPPER2_IN2, PIN_STEPPER2_IN3, PIN_STEPPER2_IN4);
 // Create ultrasonic sensor instances
 UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
@@ -267,12 +267,12 @@ void setup() {
     Serial.println("Initialising stateMachine...");
     stateMachine.begin();
     Serial.println("stateMachine initialised");
-    //Serial.println("Initialising stepperLeft...");
-    //stepperLeft.begin();
-    //Serial.println("stepperLeft initialised");
-    //Serial.println("Initialising stepperRight...");
-    //stepperRight.begin();
-    //Serial.println("stepperRight initialised");
+    Serial.println("Initialising stepperLeft...");
+    stepperLeft.begin();
+    Serial.println("stepperLeft initialised");
+    Serial.println("Initialising stepperRight...");
+    stepperRight.begin();
+    Serial.println("stepperRight initialised");
     Serial.println("Initialising doorActuator...");
     doorActuator.begin();
     Serial.println("doorActuator initialised");

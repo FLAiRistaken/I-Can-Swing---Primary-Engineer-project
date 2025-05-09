@@ -6,44 +6,44 @@
 // ========================
 
 // ---- System Control ----
-constexpr uint8_t PIN_BUZZER         = 8;   // Digital pin for buzzer
+constexpr uint8_t PIN_BUZZER         = 9;   // Digital pin for buzzer
 constexpr uint8_t PIN_EMERGENCY_STOP = 2;   // Interrupt-capable pin
 
 // ---- Stepper Motor Control ----
 // L298N Motor Driver Pins for Stepper Control
-constexpr uint8_t PIN_MOTOR1_IN1 = 10;
-constexpr uint8_t PIN_MOTOR1_IN2 = 11;
-constexpr uint8_t PIN_MOTOR1_IN3 = 12;
-constexpr uint8_t PIN_MOTOR1_IN4 = 13;
+constexpr uint8_t PIN_STEPPER1_IN1 = 3;
+constexpr uint8_t PIN_STEPPER1_IN2 = 4;
+constexpr uint8_t PIN_STEPPER1_IN3 = 5;
+constexpr uint8_t PIN_STEPPER1_IN4 = 6;
 
 // Second motor if needed
-//constexpr uint8_t PIN_MOTOR2_IN1 = 3;
-//constexpr uint8_t PIN_MOTOR2_IN2 = 4;
-//constexpr uint8_t PIN_MOTOR2_IN3 = 5;
-//constexpr uint8_t PIN_MOTOR2_IN4 = 6;
+constexpr uint8_t PIN_STEPPER2_IN1 = 6;
+constexpr uint8_t PIN_STEPPER2_IN2 = 5;
+constexpr uint8_t PIN_STEPPER2_IN3 = 4;
+constexpr uint8_t PIN_STEPPER2_IN4 = 3;
 
 // ---- Door Actuator ----
-constexpr uint8_t PIN_ACTUATOR_FWD = 10;
-constexpr uint8_t PIN_ACTUATOR_REV = 11;
+constexpr uint8_t PIN_ACTUATOR_FWD = 7;
+constexpr uint8_t PIN_ACTUATOR_REV = 8;
 
 // ---- Buttons (use available digital & analog pins as digital) ----
-constexpr uint8_t PIN_BTN_START      = 12;   // D12
-constexpr uint8_t PIN_BTN_STOP       = 13;   // D13 (also LED_BUILTIN, avoid using LED at same time)
-constexpr uint8_t PIN_BTN_SPEED_UP   = A0;   // D14
-constexpr uint8_t PIN_BTN_SPEED_DOWN = A1;   // D15
-constexpr uint8_t PIN_BTN_DOOR       = A2;   // D16
+constexpr uint8_t PIN_BTN_START      = A0;   // D12
+constexpr uint8_t PIN_BTN_STOP       = A1;   // D13 (also LED_BUILTIN, avoid using LED at same time)
+constexpr uint8_t PIN_BTN_SPEED_UP   = A2;   // D14
+constexpr uint8_t PIN_BTN_SPEED_DOWN = A3;   // D15
+constexpr uint8_t PIN_BTN_DOOR       = A4;   // D16
 
 // ---- Sensors ----
 // Pressure sensor (analog only)
-constexpr uint8_t PIN_PRESSURE_SENSOR = A3;  // Analog input
+constexpr uint8_t PIN_PRESSURE_SENSOR = A5;  // Analog input
 
 // Ultrasonic Sensor 1 (front, use available digital pins)
-constexpr uint8_t PIN_ULTRASONIC1_TRIG = 5;  // Already used for stepper1 enable, if conflict, move to another unused pin
-constexpr uint8_t PIN_ULTRASONIC1_ECHO = 4;  // Already used for stepper1 dir, if conflict, move to another unused pin
+constexpr uint8_t PIN_ULTRASONIC1_TRIG = 10;  // Already used for stepper1 enable, if conflict, move to another unused pin
+constexpr uint8_t PIN_ULTRASONIC1_ECHO = 11;  // Already used for stepper1 dir, if conflict, move to another unused pin
 
 // If you want a second ultrasonic sensor, use any remaining digital pins (not A4/A5, not used for I2C)
-constexpr uint8_t PIN_ULTRASONIC2_TRIG = 6;
-constexpr uint8_t PIN_ULTRASONIC2_ECHO = 7;
+constexpr uint8_t PIN_ULTRASONIC2_TRIG = 12;
+constexpr uint8_t PIN_ULTRASONIC2_ECHO = 13;
 
 // ---- I2C Display ----
 constexpr uint8_t PIN_DISPLAY_SDA = A4; // Reserved for I2C
