@@ -6,13 +6,26 @@ volatile bool ButtonManager::_emergencyStop = false;
 ButtonManager::ButtonManager() {}
 
 void ButtonManager::begin() {
+    Serial.println("ButtonManager: Initializing buttons...");
     for (int i = 0; i < BTN_COUNT; i++) {
         pinMode(_pins[i], INPUT_PULLUP);
+        Serial.print("ButtonManager: Pin ");
+        Serial.print(_pins[i]);
+        Serial.println(" set as INPUT_PULLUP");
     }
-
-    // Set up emergency stop interrupt
-    attachInterrupt(digitalPinToInterrupt(PIN_EMERGENCY_STOP), emergencyStopISR, FALLING);
+    // Emergency stop pin setup
+    pinMode(PIN_EMERGENCY_STOP, INPUT_PULLUP);
+    Serial.println("ButtonManager: Emergency stop pin set as INPUT_PULLUP");
+    // Attach interrupt only if pin supports it
+    if (digitalPinToInterrupt(PIN_EMERGENCY_STOP) != 2 || digitalPinToInterrupt(PIN_EMERGENCY_STOP) != 3) {
+        attachInterrupt(digitalPinToInterrupt(PIN_EMERGENCY_STOP), emergencyStopISR, FALLING);
+        Serial.println("ButtonManager: Emergency stop interrupt attached");
+    } else {
+        Serial.println("ButtonManager: WARNING - Emergency stop pin is not interrupt-capable");
+    }
+    Serial.println("ButtonManager: Initialization complete");
 }
+
 
 void ButtonManager::update() {
     unsigned long currentTime = millis();

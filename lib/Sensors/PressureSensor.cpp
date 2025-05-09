@@ -1,0 +1,34 @@
+// lib/Sensors/PressureSensor.cpp
+#include "PressureSensor.h"
+
+PressureSensor::PressureSensor(uint8_t analogPin, int threshold, const char* name)
+    : _analogPin(analogPin), _threshold(threshold), _name(name), _lastRawValue(0) {}
+
+void PressureSensor::begin() {
+    pinMode(_analogPin, INPUT);
+    Serial.print("Pressure Sensor '");
+    Serial.print(_name);
+    Serial.println("' initialized");
+}
+
+int PressureSensor::readRawValue() {
+    _lastRawValue = analogRead(_analogPin);
+    return _lastRawValue;
+}
+
+bool PressureSensor::isOccupied() {
+    readRawValue();
+    return (_lastRawValue > _threshold);
+}
+
+int PressureSensor::getThreshold() const {
+    return _threshold;
+}
+
+int PressureSensor::getLastReading() const {
+    return _lastRawValue;
+}
+
+const char* PressureSensor::getName() const {
+    return _name;
+}

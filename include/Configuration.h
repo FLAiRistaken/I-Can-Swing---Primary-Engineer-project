@@ -1,55 +1,72 @@
 #pragma once
-
-#include <stdint.h>
 #include <Arduino.h>
 
+// ========================
 // Pin Definitions
-// System Control Pins
-constexpr uint8_t PIN_BUZZER = 8;  // Already in use
-constexpr uint8_t PIN_EMERGENCY_STOP = 2;  // Use interrupt-capable pin
+// ========================
 
-// Motor Control Pins
-constexpr uint8_t PIN_STEPPER1_STEP = 3;
-constexpr uint8_t PIN_STEPPER1_DIR = 4;
-constexpr uint8_t PIN_STEPPER1_ENABLE = 5;
-constexpr uint8_t PIN_STEPPER2_STEP = 6;
-constexpr uint8_t PIN_STEPPER2_DIR = 7;
-constexpr uint8_t PIN_STEPPER2_ENABLE = 9;
+// ---- System Control ----
+constexpr uint8_t PIN_BUZZER         = 8;   // Digital pin for buzzer
+constexpr uint8_t PIN_EMERGENCY_STOP = 2;   // Interrupt-capable pin
 
-// Door Actuator Pins
+// ---- Stepper Motor Control ----
+// L298N Motor Driver Pins for Stepper Control
+constexpr uint8_t PIN_MOTOR1_IN1 = 10;
+constexpr uint8_t PIN_MOTOR1_IN2 = 11;
+constexpr uint8_t PIN_MOTOR1_IN3 = 12;
+constexpr uint8_t PIN_MOTOR1_IN4 = 13;
+
+// Second motor if needed
+//constexpr uint8_t PIN_MOTOR2_IN1 = 3;
+//constexpr uint8_t PIN_MOTOR2_IN2 = 4;
+//constexpr uint8_t PIN_MOTOR2_IN3 = 5;
+//constexpr uint8_t PIN_MOTOR2_IN4 = 6;
+
+// ---- Door Actuator ----
 constexpr uint8_t PIN_ACTUATOR_FWD = 10;
 constexpr uint8_t PIN_ACTUATOR_REV = 11;
 
-// Button Pins
-constexpr uint8_t PIN_BTN_START = 22;
-constexpr uint8_t PIN_BTN_STOP = 23;
-constexpr uint8_t PIN_BTN_SPEED_UP = 24;
-constexpr uint8_t PIN_BTN_SPEED_DOWN = 25;
-constexpr uint8_t PIN_BTN_DOOR = 26;
+// ---- Buttons (use available digital & analog pins as digital) ----
+constexpr uint8_t PIN_BTN_START      = 12;   // D12
+constexpr uint8_t PIN_BTN_STOP       = 13;   // D13 (also LED_BUILTIN, avoid using LED at same time)
+constexpr uint8_t PIN_BTN_SPEED_UP   = A0;   // D14
+constexpr uint8_t PIN_BTN_SPEED_DOWN = A1;   // D15
+constexpr uint8_t PIN_BTN_DOOR       = A2;   // D16
 
-// Sensor Pins
-constexpr uint8_t PIN_PRESSURE_SENSOR = A0;
-constexpr uint8_t PIN_ULTRASONIC1_TRIG = 5;
-constexpr uint8_t PIN_ULTRASONIC1_ECHO = 4;
-constexpr uint8_t PIN_ULTRASONIC2_TRIG = 32;
-constexpr uint8_t PIN_ULTRASONIC2_ECHO = 33;
+// ---- Sensors ----
+// Pressure sensor (analog only)
+constexpr uint8_t PIN_PRESSURE_SENSOR = A3;  // Analog input
 
-// Voice Recognition Module
-constexpr uint8_t PIN_VOICE_RX = 12;  // Software serial
-constexpr uint8_t PIN_VOICE_TX = 13;  // Software serial
+// Ultrasonic Sensor 1 (front, use available digital pins)
+constexpr uint8_t PIN_ULTRASONIC1_TRIG = 5;  // Already used for stepper1 enable, if conflict, move to another unused pin
+constexpr uint8_t PIN_ULTRASONIC1_ECHO = 4;  // Already used for stepper1 dir, if conflict, move to another unused pin
 
+// If you want a second ultrasonic sensor, use any remaining digital pins (not A4/A5, not used for I2C)
+constexpr uint8_t PIN_ULTRASONIC2_TRIG = 6;
+constexpr uint8_t PIN_ULTRASONIC2_ECHO = 7;
+
+// ---- I2C Display ----
+constexpr uint8_t PIN_DISPLAY_SDA = A4; // Reserved for I2C
+constexpr uint8_t PIN_DISPLAY_SCL = A5; // Reserved for I2C
+
+// ---- Voice Recognition Module (SoftwareSerial, pick any free digital pins except D0/D1, A4/A5) ----
+constexpr uint8_t PIN_VOICE_RX = 0;  // Example: D0 (if not used elsewhere)
+constexpr uint8_t PIN_VOICE_TX = 1;  // Example: D1 (if not used elsewhere)
+
+// ========================
 // System Constants
-// Speed Settings (steps per second)
-constexpr uint16_t SPEED_LOW = 300;
+// ========================
+constexpr uint16_t SPEED_LOW    = 300;
 constexpr uint16_t SPEED_MEDIUM = 500;
-constexpr uint16_t SPEED_HIGH = 700;
+constexpr uint16_t SPEED_HIGH   = 700;
 
-// Timing Parameters
-constexpr unsigned long DOOR_OPEN_TIME_MS = 5000;  // Time for door to open/close
-constexpr unsigned long BUTTON_DEBOUNCE_MS = 50;   // Button debounce time
-constexpr unsigned long DISPLAY_UPDATE_MS = 1000;   // Display refresh interval
-constexpr unsigned long SENSOR_CHECK_MS = 100;     // Sensor polling interval
+constexpr unsigned long DOOR_OPEN_TIME_MS   = 5000;
+constexpr unsigned long BUTTON_DEBOUNCE_MS  = 50;
+constexpr unsigned long DISPLAY_UPDATE_MS   = 1000;
+constexpr unsigned long SENSOR_CHECK_MS     = 100;
 
-// Safety Parameters
-constexpr int PRESSURE_THRESHOLD = 500;  // Analog reading threshold for occupancy
-constexpr int OBSTACLE_DISTANCE_CM = 30; // Ultrasonic detection threshold
+// ---- Safety Parameters ----
+constexpr int PRESSURE_THRESHOLD    = 500; // Analog threshold for occupancy
+constexpr int OBSTACLE_DISTANCE_CM  = 30;  // Default ultrasonic warning threshold
+constexpr int CRITICAL_DISTANCE_CM  = 10;  // Emergency stop threshold
+
