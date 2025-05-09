@@ -9,6 +9,8 @@
 #include "UltrasonicSensor.h"
 #include "PressureSensor.h"
 #include "ActuatorDriver.h"
+#include "SafetyMonitor.h"
+
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
@@ -24,6 +26,8 @@ UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rea
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
 ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine);
 
+// Create SafetyMonitor instance
+SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
 
 // UsS Distance values
 float frontDistance = 0.0;
@@ -46,13 +50,17 @@ void updateDisplay() {
     sprintf(speedLine, "Speed: %s", stateMachine.getSpeedString());
     display.drawText(0, 16, speedLine);
 
-    // Show ultrasonic sensor values
+    // Show ultrasonic sensor values and safety status
     char distanceLine[32];
-    sprintf(distanceLine, "Dist F:%0.1f R:%0.1f cm", frontDistance, rearDistance);
+    sprintf(distanceLine, "F:%0.1f R:%0.1f %s",
+            safetyMonitor.getFrontDistance(),
+            safetyMonitor.getRearDistance(),
+            safetyMonitor.getStatusString());
     display.drawText(0, 32, distanceLine);
 
     display.display();
 }
+
 
 void handleButtons() {
     buttons.update();
@@ -116,23 +124,22 @@ void handleButtons() {
     }
 }
 
-void checkSensors() {
-    // Check pressure sensor for occupancy
+// New function to replace checkSensors()
+void handleUserPresenceChanges() {
+    // Get user presence from SafetyMonitor
+    bool currentUserPresent = safetyMonitor.isUserPresent();
+
+    // For debugging and display updates
     static bool lastUserPresentState = false;
-    bool currentUserPresent = pressureSensor.isOccupied(); // Use the class method
 
     if (currentUserPresent != lastUserPresentState) {
-        lastUserPresentState = currentUserPresent;
-        stateMachine.processEvent(currentUserPresent ?
-                                  StateMachine::EVENT_PRESSURE_ON :
-                                  StateMachine::EVENT_PRESSURE_OFF);
-
         Serial.print("User presence changed: ");
         Serial.println(currentUserPresent ? "Present" : "Absent");
-        buzzer.beep(800, 50); // Optional feedback beep
+        buzzer.beep(800, 50); // Feedback beep
+        lastUserPresentState = currentUserPresent;
     }
-
 }
+
 
 
 // Function to check ultrasonic sensors
@@ -189,6 +196,7 @@ void updateMotors() {
                 speedValue = 0;
                 break;
         }
+        safetyMonitor.updateMotorStatus(true, speedValue);
 
         stepperLeft.setSpeed(speedValue);
         stepperRight.setSpeed(speedValue);
@@ -209,6 +217,7 @@ void updateMotors() {
             doorActuator.startRetract(); // Uses default time from Configuration.h
         }
     } else {
+        safetyMonitor.updateMotorStatus(false, 0);
         stepperLeft.stop();
         stepperRight.stop();
 
@@ -232,16 +241,41 @@ void setup() {
     Wire.setClock(100000);
 
     // Initialise components
+    Serial.println("Initialising buzzer...");
     buzzer.begin();
+    Serial.println("Buzzer initialised");
+    Serial.println("Initialising display...");
     display.begin();
+    Serial.println("Display initialised");
+    Serial.println("Initialising buttons...");
     buttons.begin();
+    Serial.println("Buttons initialised");
+    Serial.println("Initialising safetyMonitor...");
+    safetyMonitor.begin();
+    Serial.println("safetyMonitor initialised");
+    Serial.println("Initialising ultrasonicFront...");
     ultrasonicFront.begin();
+    Serial.println("ultrasonicFront initialised");
+    delay(50);
+    Serial.println("Initialising ultrasonicRear...");
     ultrasonicRear.begin();
+    Serial.println("ultrasonicRear initialised");
+    delay(50);
+    Serial.println("Initialising pressureSensor...");
     pressureSensor.begin();
+    Serial.println("pressureSensor initialised");
+    Serial.println("Initialising stateMachine...");
     stateMachine.begin();
-    stepperLeft.begin();
-    stepperRight.begin();
+    Serial.println("stateMachine initialised");
+    //Serial.println("Initialising stepperLeft...");
+    //stepperLeft.begin();
+    //Serial.println("stepperLeft initialised");
+    //Serial.println("Initialising stepperRight...");
+    //stepperRight.begin();
+    //Serial.println("stepperRight initialised");
+    Serial.println("Initialising doorActuator...");
     doorActuator.begin();
+    Serial.println("doorActuator initialised");
 
     // Set initial stepper directions (opposite for swing motion)
     stepperLeft.setDirection(true);   // Clockwise
@@ -267,13 +301,16 @@ void loop() {
     unsigned long currentMillis = millis();
     if (currentMillis - lastSensorCheck >= SENSOR_CHECK_MS) {
         lastSensorCheck = currentMillis;
-        Serial.println("Checking ssensors");
-        checkSensors();
-        checkUltrasonicSensors();
+        Serial.println("Checking sensors");
+        safetyMonitor.checkSafety();
+        handleUserPresenceChanges();
     }
 
+    // Update door actuator
+    doorActuator.update();
+
     // Update motor control
-    //updateMotors();
+    updateMotors();
 
     // Update display at regular intervals
     if (currentMillis - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {

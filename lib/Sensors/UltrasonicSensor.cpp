@@ -22,14 +22,14 @@ float UltrasonicSensor::measureDistance() {
     digitalWrite(_trigPin, LOW);
 
     // Read echo pin (time in microseconds)
-    unsigned long duration = pulseIn(_echoPin, HIGH, MEASUREMENT_TIMEOUT);
+    unsigned long duration = pulseIn(_echoPin, HIGH, 30000); // 30ms timeout
 
-    // Calculate distance in cm (speed of sound = 0.034 cm/µs)
-    // Divide by 2 because sound travels to the object and back
+    // Calculate distance in cm
     _lastDistance = (duration * 0.034) / 2.0;
 
     return _lastDistance;
 }
+
 
 void UltrasonicSensor::startMeasurement() {
     if (_measuring) {
