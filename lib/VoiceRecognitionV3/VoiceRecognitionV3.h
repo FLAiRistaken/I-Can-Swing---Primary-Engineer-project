@@ -10,9 +10,9 @@
          This driver is for elechouse Voice Recognition V2 Module(LINKS here)
   ******************************************************************************
   * @section  HISTORY
-  
+
     V1.0    Initial version.
-  
+
   ******************************************************************************
   * @attention
   *
@@ -26,14 +26,12 @@
   * <h2><center>&copy; COPYRIGHT 2013 ELECHOUSE</center></h2>
   ******************************************************************************
   */
-  
+
 #if ARDUINO >= 100
  #include "Arduino.h"
 #else
  #include "WProgram.h"
 #endif
-
-#include "wiring_private.h"
 
 #include "SoftwareSerial.h"
 #include <avr/pgmspace.h>
@@ -66,7 +64,7 @@
 #define FRAME_CMD_SET_BR					(0x11)	//baud rate
 #define FRAME_CMD_SET_IOM					(0x12)	//IO mode
 #define FRAME_CMD_SET_PW					(0x13)	//pulse width
-#define FRAME_CMD_RESET_IO					(0x14)	// reset IO OUTPUT					
+#define FRAME_CMD_RESET_IO					(0x14)	// reset IO OUTPUT
 #define FRAME_CMD_SET_AL					(0x15)	// Auto load
 
 #define FRAME_CMD_TRAIN						(0x20)
@@ -74,7 +72,7 @@
 #define FRAME_CMD_SET_SIG					(0x22)
 
 #define FRAME_CMD_LOAD						(0x30)	//Load N records
-#define FRAME_CMD_CLEAR						(0x31)	//Clear BSR buffer					
+#define FRAME_CMD_CLEAR						(0x31)	//Clear BSR buffer
 #define FRAME_CMD_GROUP						(0x32)  //
 	#define FRAME_CMD_GROUP_SET							(0x00)  //
 	#define FRAME_CMD_GROUP_SUGRP						(0x01)  //
@@ -83,8 +81,8 @@
 	#define FRAME_CMD_GROUP_CUGRP						(0x04)  //
 
 #define FRAME_CMD_TEST						(0xEE)
-	#define FRAME_CMD_TEST_READ							(0x01)	
-	#define FRAME_CMD_TEST_WRITE						(0x00)	
+	#define FRAME_CMD_TEST_READ							(0x01)
+	#define FRAME_CMD_TEST_WRITE						(0x00)
 
 
 #define FRAME_CMD_VR						(0x0D)	//Voice recognized
@@ -106,22 +104,22 @@
 class VR : public SoftwareSerial{
 public:
 	VR(uint8_t receivePin, uint8_t transmitPin);
-	
+
 	static VR* getInstance() {
 	   return instance;
 	}
-	
+
 	typedef enum{
 		PULSE = 0,
 		TOGGLE = 1,
-		SET = 2, 
+		SET = 2,
 		CLEAR = 3
 	}io_mode_t;
-	
+
 	typedef enum{
 		LEVEL0 = 0,
 		LEVEL1,
-		LEVEL2, 
+		LEVEL2,
 		LEVEL3,
 		LEVEL4,
 		LEVEL5,
@@ -136,7 +134,7 @@ public:
 		LEVEL14,
 		LEVEL15,
 	}pulse_width_level_t;
-	
+
 	typedef enum{
 		GROUP0 = 0,
 		GROUP1,
@@ -148,7 +146,7 @@ public:
 		GROUP7,
 		GROUP_ALL = 0xFF,
 	}group_t;
-	
+
 	int setBaudRate(unsigned long br);
 	int setIOMode(io_mode_t mode);
 	int resetIO(uint8_t *ios=0, uint8_t len=1);
@@ -166,11 +164,11 @@ public:
 	int clear();
 	int setSignature(uint8_t record, const void *buf=0, uint8_t len=0);
 	int deleteSignature(uint8_t record);
-    
+
 	int checkSignature(uint8_t record, uint8_t *buf);
 	int checkRecognizer(uint8_t *buf);
 	int checkRecord(uint8_t *buf, uint8_t *records = 0, uint8_t len = 0);
-	
+
 	/** group control */
 	int setGroupControl(uint8_t ctrl);
 	int checkGroupControl();
@@ -178,11 +176,11 @@ public:
 	int checkUserGroup(uint8_t grp, uint8_t *buf);
 	int loadSystemGroup(uint8_t grp, uint8_t *buf=0);
 	int loadUserGroup(uint8_t grp, uint8_t *buf=0);
-	
+
 	int test(uint8_t cmd, uint8_t *bsr);
-	
+
 	int writehex(uint8_t *buf, uint8_t len);
-	
+
 /***************************************************************************/
 	/** low level */
 	int len(uint8_t *buf);
