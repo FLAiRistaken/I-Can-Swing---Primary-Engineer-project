@@ -281,6 +281,10 @@ void setup() {
     stepperLeft.setDirection(true);   // Clockwise
     stepperRight.setDirection(false); // Counter-clockwise
 
+    stateMachine.setBuzzer(&buzzer);
+    stateMachine.setDoorActuator(&doorActuator);
+    stateMachine.setDoorTimeout(5000);
+
     // Startup beep
     buzzer.beep(1000, 100);
     delay(100);
@@ -296,6 +300,9 @@ void loop() {
     //handleButtons();
 
     Serial.println("Loop...");
+
+    // Timeout checking
+    stateMachine.update();
 
     // Check sensors at regular intervals
     unsigned long currentMillis = millis();

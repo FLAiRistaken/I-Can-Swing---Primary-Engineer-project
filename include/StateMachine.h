@@ -4,6 +4,9 @@
 #include <Arduino.h>
 #include "Configuration.h"
 
+class ActuatorDriver;
+class BuzzerDriver;
+
 class StateMachine {
 public:
     enum State {
@@ -42,6 +45,16 @@ public:
     StateMachine();
     void begin();
 
+    // Setters for _buzzer and _doorActuator
+    void setBuzzer(BuzzerDriver* buzzer);
+    void setDoorActuator(ActuatorDriver* doorActuator);
+
+    // Timeout setting
+    void setDoorTimeout(unsigned long timeoutMs);
+
+    // update method for timeout checking
+    void update(); // Call in loop to check timeouts
+
     // Process an event and update state
     void processEvent(Event event);
 
@@ -58,7 +71,12 @@ public:
 private:
     State _currentState;
     Speed _currentSpeed;
+    ActuatorDriver* _doorActuator;
+    BuzzerDriver* _buzzer;
     bool _isUserPresent; // Flag to track occupancy
+    unsigned long _stateEntryTime;
+    unsigned long _doorTimeoutMs;
+    bool _timeoutEnabled;
 
     // Transition to a new state
     void transition(State newState);

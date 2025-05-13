@@ -1,15 +1,29 @@
 // StateMachine.cpp
 #include "StateMachine.h"
 #include "Debug.h"
+#include "BuzzerDriver.h"
+#include "ActuatorDriver.h"
 
-StateMachine::StateMachine() : _currentState(STATE_IDLE), _currentSpeed(SPEED_OFF), _isUserPresent(false) {}
+StateMachine::StateMachine() : _currentState(STATE_IDLE), _currentSpeed(SPEED_OFF), _isUserPresent(false), _doorActuator(nullptr), _buzzer(nullptr) {}
 
 void StateMachine::begin() {
-    // Initialise state machine
     _currentState = STATE_IDLE;
     _currentSpeed = SPEED_OFF;
     _isUserPresent = false;
-    DEBUG_PRINTLN("StateMachine: Initialised. State: IDLE, UserPresent: false");
+    _stateEntryTime = millis();
+    _timeoutEnabled = false;
+    _doorTimeoutMs = 10000; // 10 seconds default
+
+    // Check if components are set
+    if (!_buzzer) {
+        Serial.println("StateMachine: Warning - Buzzer not set");
+    }
+
+    if (!_doorActuator) {
+        Serial.println("StateMachine: Warning - Door actuator not set");
+    }
+
+    Serial.println("StateMachine: Initialized");
 }
 
 void StateMachine::processEvent(Event event) {
@@ -180,65 +194,142 @@ void StateMachine::transition(State newState) {
 }
 
 void StateMachine::enterState(State state) {
-    DEBUG_PRINT("StateMachine: Entering state: ");
-    DEBUG_PRINTLN(getStateString());
+    Serial.print("StateMachine: Entering state: ");
+    Serial.println(getStateString());
 
-    // Actions to perform when entering each state
+    // Record time for timeout handling
+    _stateEntryTime = millis();
+
     switch (state) {
         case STATE_SWINGING:
-            // Motors are controlled in updateMotors() in main.cpp
-            // This just logs the entry
-            DEBUG_PRINT("StateMachine: Starting swing motion at speed: ");
-            DEBUG_PRINTLN(getSpeedString());
+            Serial.print("StateMachine: Starting swing motion at speed: ");
+            Serial.println(getSpeedString());
+            // Audio feedback
+            if (_buzzer) {
+                _buzzer->beep(1000, 100);
+                delay(50);
+                _buzzer->beep(1200, 100);
+            }
             break;
 
         case STATE_DOOR_OPENING:
-            // Signal door to open via main loop
-            DEBUG_PRINTLN("StateMachine: Initiating door opening sequence");
-            // Main loop will handle the actual hardware control
+            Serial.println("StateMachine: Initiating door opening sequence");
+            // Direct control of door actuator
+            if (_doorActuator) {
+                _doorActuator->startExtend();
+                _timeoutEnabled = true;
+            }
+            // Audio feedback
+            if (_buzzer) {
+                _buzzer->beep(800, 100);
+            }
             break;
 
         case STATE_DOOR_CLOSING:
-            // Signal door to close via main loop
-            DEBUG_PRINTLN("StateMachine: Initiating door closing sequence");
-            // Main loop will handle the actual hardware control
+            Serial.println("StateMachine: Initiating door closing sequence");
+            // Direct control of door actuator
+            if (_doorActuator) {
+                _doorActuator->startRetract();
+                _timeoutEnabled = true;
+            }
+            // Audio feedback
+            if (_buzzer) {
+                _buzzer->beep(600, 100);
+            }
             break;
 
         case STATE_ERROR:
-            DEBUG_PRINTLN("StateMachine: Error condition detected");
-            // Errors need to be cleared manually
+            Serial.println("StateMachine: Error condition detected");
+            // Audio feedback - double beep
+            if (_buzzer) {
+                _buzzer->beep(1500, 200);
+                delay(100);
+                _buzzer->beep(1500, 200);
+            }
             break;
 
         case STATE_EMERGENCY:
-            DEBUG_PRINTLN("StateMachine: EMERGENCY MODE ACTIVATED");
-            // Emergency needs manual reset
+            Serial.println("StateMachine: EMERGENCY MODE ACTIVATED");
+            // Audio feedback - urgent double beep
+            if (_buzzer) {
+                _buzzer->beep(2000, 500);
+                delay(100);
+                _buzzer->beep(2000, 500);
+            }
             break;
 
         case STATE_IDLE:
-            DEBUG_PRINTLN("StateMachine: System is now idle");
-            break;
-
-        default:
+            Serial.println("StateMachine: System is now idle");
+            // Audio feedback - single beep
+            if (_buzzer) {
+                _buzzer->beep(400, 100);
+            }
             break;
     }
 }
 
-
+// StateMachine.cpp - Update exitState
 void StateMachine::exitState(State state) {
-    // Actions to perform when exiting each state
-    switch (state) {
-        case STATE_SWINGING:
-            // Stop swing motors
-            break;
+    Serial.print("StateMachine: Exiting state: ");
+    Serial.println(getStateString());
 
+    switch (state) {
         case STATE_DOOR_OPENING:
         case STATE_DOOR_CLOSING:
-            // Stop actuator
+            // Stop door movement directly
+            if (_doorActuator) {
+                _doorActuator->stop();
+            }
+            _timeoutEnabled = false;
+            Serial.println("StateMachine: Stopping door movement");
             break;
 
-        default:
+        case STATE_ERROR:
+        case STATE_EMERGENCY:
+            Serial.println("StateMachine: Exiting fault state");
+            // Audio feedback - recovery beep
+            if (_buzzer) {
+                _buzzer->beep(1000, 100);
+                delay(50);
+                _buzzer->beep(1500, 100);
+            }
             break;
     }
+}
+
+void StateMachine::setDoorTimeout(unsigned long timeoutMs) {
+    _doorTimeoutMs = timeoutMs;
+    Serial.print("StateMachine: Door timeout set to ");
+    Serial.print(_doorTimeoutMs);
+    Serial.println(" ms");
+}
+
+void StateMachine::update() {
+    // Check for timeouts
+    if (_timeoutEnabled) {
+        unsigned long currentTime = millis();
+        if (currentTime - _stateEntryTime > _doorTimeoutMs) {
+            Serial.println("StateMachine: Door operation timed out!");
+
+            // Handle timeout based on current state
+            if (_currentState == STATE_DOOR_OPENING || _currentState == STATE_DOOR_CLOSING) {
+                if (_doorActuator) {
+                    _doorActuator->stop();
+                }
+                transition(STATE_ERROR);
+            }
+
+            _timeoutEnabled = false;
+        }
+    }
+}
+
+void StateMachine::setBuzzer(BuzzerDriver* buzzer) {
+    _buzzer = buzzer;
+}
+
+void StateMachine::setDoorActuator(ActuatorDriver* doorActuator) {
+    _doorActuator = doorActuator;
 }
 
 StateMachine::State StateMachine::getCurrentState() const {
