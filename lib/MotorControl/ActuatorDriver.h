@@ -20,14 +20,14 @@ public:
     // Control methods
     void extend();  // Open door
     void retract(); // Close door
-    void stop();
+    virtual void stop();
 
     // Current status
     Direction getCurrentDirection() const;
 
     // Non-blocking control with timing
-    void startExtend(unsigned long timeMs = DOOR_OPEN_TIME_MS);
-    void startRetract(unsigned long timeMs = DOOR_OPEN_TIME_MS);
+    virtual void startExtend(unsigned long timeMs = DOOR_OPEN_TIME_MS);
+    virtual void startRetract(unsigned long timeMs = DOOR_OPEN_TIME_MS);
     void update(); // Call this in loop()
     bool isMoving() const;
 
