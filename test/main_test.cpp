@@ -1,122 +1,126 @@
 // test/main_test.cpp
 #include <Arduino.h>
 #include <unity.h>
-#include <Wire.h>
-#include <SoftwareSerial.h>
-#include "Configuration.h"
 #include "test_utils/component_detector.h"
+#include "Configuration.h"
 
-// Forward declarations of test groups
-void run_state_machine_tests(void);
-void run_safety_monitor_tests(void);
-void run_ultrasonic_tests(void);
-void run_pressure_sensor_tests(void);
-void run_stepper_driver_tests(void);
-void run_actuator_driver_tests(void);
-void run_buzzer_driver_tests(void);
-void run_display_driver_tests(void);
-void run_button_manager_tests(void);
-void run_voice_recognition_tests(void);
-void run_integration_tests(void);
-void run_system_tests(void);
+// Forward declarations of test runners
+extern void run_state_machine_tests(void);
+extern void run_safety_monitor_tests(void);
+extern void run_ultrasonic_tests(void);
+extern void run_pressure_sensor_tests(void);
+extern void run_stepper_driver_tests(void);
+extern void run_actuator_driver_tests(void);
+extern void run_buzzer_driver_tests(void);
+extern void run_display_driver_tests(void);
+extern void run_voice_recognition_tests(void);
+
+// Integration test runners
+extern void run_safety_state_integration_tests(void);
+extern void run_voice_control_integration_tests(void);
+extern void run_user_presence_integration_tests(void);
+
+// System test runners
+extern void run_door_operation_tests(void);
+
+// Test stats tracking
+struct TestStats {
+    int total = 0;
+    int run = 0;
+    int skipped = 0;
+};
+
+TestStats stats;
+
+void runTestGroup(const char* name, void (*testFunction)(), bool condition) {
+    stats.total++;
+
+    if (condition) {
+        Serial.print(F("\n> Running: "));
+        Serial.println(name);
+        stats.run++;
+        testFunction();
+    } else {
+        Serial.print(F("\n> SKIPPED: "));
+        Serial.print(name);
+        Serial.println(F(" (hardware not detected)"));
+        stats.skipped++;
+    }
+}
 
 void setup() {
-    delay(2000); // Wait for serial connection
+    delay(2000); // Wait for Serial to initialize
     Serial.begin(9600);
-    Serial.println("Starting wheelchair swing test suite...");
-    Wire.begin();
+    Wire.begin(); // Initialize I2C for component detection
 
-    UNITY_BEGIN();
-    Serial.println("===============================");
-    Serial.println("Detecting available components:");
-    Serial.println("===============================");
+    Serial.println(F("\n\n===== Wheelchair Swing Test Suite ====="));
+    Serial.println(F("Date: May 14, 2025"));
 
-    // Always run state machine tests (software component)
-    Serial.println("Running State Machine tests (software component)");
-    run_state_machine_tests();
+    // Detect available hardware components
+    Serial.println(F("\nDetecting hardware components..."));
+    ComponentDetector::printComponentStatus();
 
-    // Run hardware-dependent tests based on component availability
-    if (ComponentDetector::isUltrasonicAvailable(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO)) {
-        Serial.println("Front ultrasonic sensor detected - running tests");
-        run_ultrasonic_tests();
-    } else {
-        Serial.println("Front ultrasonic sensor NOT detected - skipping tests");
-    }
+    // Check for core hardware components
+    bool frontUltrasonic = ComponentDetector::isUltrasonicAvailable(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO);
+    bool rearUltrasonic = ComponentDetector::isUltrasonicAvailable(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO);
+    bool pressureSensor = ComponentDetector::isPressureSensorAvailable(PIN_PRESSURE_SENSOR);
+    bool stepperMotor = ComponentDetector::isStepperDriverAvailable(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2,
+                                                                  PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+    bool actuator = ComponentDetector::isActuatorAvailable(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV);
+    bool display = ComponentDetector::isDisplayAvailable();
+    bool voiceModule = ComponentDetector::isVoiceModuleAvailable(PIN_VOICE_RX, PIN_VOICE_TX);
+    bool buzzer = ComponentDetector::isBuzzerAvailable(PIN_BUZZER);
 
-    if (ComponentDetector::isPressureSensorAvailable(PIN_PRESSURE_SENSOR)) {
-        Serial.println("Pressure sensor detected - running tests");
-        run_pressure_sensor_tests();
-    } else {
-        Serial.println("Pressure sensor NOT detected - skipping tests");
-    }
+    // Run hardware-independent tests (always run)
+    Serial.println(F("\n--- Running Hardware-Independent Tests ---"));
+    runTestGroup("State Machine Tests", run_state_machine_tests, true);
+    runTestGroup("Safety Monitor Tests", run_safety_monitor_tests, true);
 
-    if (ComponentDetector::isMotorDriverAvailable(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2,
-                                                 PIN_STEPPER1_IN3, PIN_STEPPER1_IN4)) {
-        Serial.println("Stepper motor driver detected - running tests");
-        run_stepper_driver_tests();
-    } else {
-        Serial.println("Stepper motor driver NOT detected - skipping tests");
-    }
-
-    if (ComponentDetector::isActuatorAvailable(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV)) {
-        Serial.println("Door actuator detected - running tests");
-        run_actuator_driver_tests();
-    } else {
-        Serial.println("Door actuator NOT detected - skipping tests");
-    }
-
-    if (ComponentDetector::isBuzzerAvailable(PIN_BUZZER)) {
-        Serial.println("Buzzer detected - running tests");
-        run_buzzer_driver_tests();
-    } else {
-        Serial.println("Buzzer NOT detected - skipping tests");
-    }
-
-    if (ComponentDetector::isDisplayAvailable()) {
-        Serial.println("Display detected - running tests");
-        run_display_driver_tests();
-    } else {
-        Serial.println("Display NOT detected - skipping tests");
-    }
-
-    if (ComponentDetector::isVoiceModuleAvailable(PIN_VOICE_RX, PIN_VOICE_TX)) {
-        Serial.println("Voice recognition module detected - running tests");
-        run_voice_recognition_tests();
-    } else {
-        Serial.println("Voice recognition module NOT detected - skipping tests");
-    }
-
-    // SafetyMonitor tests use mock components when real ones aren't available
-    Serial.println("Running Safety Monitor tests with available components/mocks");
-    run_safety_monitor_tests();
+    // Run hardware-dependent unit tests if components are available
+    Serial.println(F("\n--- Running Hardware-Dependent Unit Tests ---"));
+    runTestGroup("Ultrasonic Sensor Tests", run_ultrasonic_tests, frontUltrasonic || rearUltrasonic);
+    runTestGroup("Pressure Sensor Tests", run_pressure_sensor_tests, pressureSensor);
+    runTestGroup("Stepper Driver Tests", run_stepper_driver_tests, stepperMotor);
+    runTestGroup("Actuator Driver Tests", run_actuator_driver_tests, actuator);
+    runTestGroup("Buzzer Driver Tests", run_buzzer_driver_tests, buzzer);
+    runTestGroup("Display Driver Tests", run_display_driver_tests, display);
+    runTestGroup("Voice Recognition Tests", run_voice_recognition_tests, voiceModule);
 
     // Run integration tests if multiple components are available
-    Serial.println("Running available integration tests");
-    run_integration_tests();
+    Serial.println(F("\n--- Running Integration Tests ---"));
+    runTestGroup("Safety & State Integration Tests", run_safety_state_integration_tests,
+                 frontUltrasonic && pressureSensor);
+    runTestGroup("Voice Control Integration Tests", run_voice_control_integration_tests,
+                 voiceModule && stepperMotor);
+    runTestGroup("User Presence Integration Tests", run_user_presence_integration_tests,
+                 pressureSensor);
 
     // Run system tests if all critical components are available
-    if (ComponentDetector::isUltrasonicAvailable(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO) &&
-        ComponentDetector::isPressureSensorAvailable(PIN_PRESSURE_SENSOR) &&
-        ComponentDetector::isMotorDriverAvailable(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2,
-                                               PIN_STEPPER1_IN3, PIN_STEPPER1_IN4)) {
-        Serial.println("All critical components available - running system tests");
-        run_system_tests();
-    } else {
-        Serial.println("Not all critical components available - skipping system tests");
-    }
+    Serial.println(F("\n--- Running System Tests ---"));
+    runTestGroup("Door Operation System Tests", run_door_operation_tests,
+                 actuator && (frontUltrasonic || rearUltrasonic));
 
-    UNITY_END();
+    // Print test summary
+    Serial.println(F("\n===== Test Summary ====="));
+    Serial.print(F("Total test groups: "));
+    Serial.println(stats.total);
+    Serial.print(F("Run: "));
+    Serial.println(stats.run);
+    Serial.print(F("Skipped: "));
+    Serial.println(stats.skipped);
+
+    // Visual indicator of completion
+    if (buzzer) {
+        // Three beeps for success
+        tone(PIN_BUZZER, 1000, 100);
+        delay(150);
+        tone(PIN_BUZZER, 1200, 100);
+        delay(150);
+        tone(PIN_BUZZER, 1500, 100);
+    }
 }
 
 void loop() {
-    // Nothing to do after tests complete
-}
-
-// Example implementation of one test group
-void run_state_machine_tests() {
-    // Individual test case declarations would go here
-    // RUN_TEST(test_state_machine_initial_state);
-    // RUN_TEST(test_state_machine_start_transition);
-    // RUN_TEST(test_state_machine_emergency);
-    Serial.println("State machine tests completed");
+    // Nothing to do in loop
+    delay(1000);
 }
