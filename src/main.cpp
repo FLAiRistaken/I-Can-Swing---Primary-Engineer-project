@@ -10,7 +10,7 @@
 #include "PressureSensor.h"
 #include "ActuatorDriver.h"
 #include "SafetyMonitor.h"
-
+#include "VoiceRecognition.h"
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
@@ -18,13 +18,14 @@ DisplayDriver display;
 ButtonManager buttons;
 StateMachine stateMachine;
 // Create stepper motor drivers
-StepperDriver stepperLeft(PIN_STEPPER1_STEP, PIN_STEPPER1_DIR, PIN_STEPPER1_ENABLE);
-StepperDriver stepperRight(PIN_STEPPER2_STEP, PIN_STEPPER2_DIR, PIN_STEPPER2_ENABLE);
+StepperDriver stepperLeft(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+StepperDriver stepperRight(PIN_STEPPER2_IN1, PIN_STEPPER2_IN2, PIN_STEPPER2_IN3, PIN_STEPPER2_IN4);
 // Create ultrasonic sensor instances
 UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
 ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine);
+VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 
 // Create SafetyMonitor instance
 SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
@@ -247,9 +248,9 @@ void setup() {
     Serial.println("Initialising display...");
     display.begin();
     Serial.println("Display initialised");
-    Serial.println("Initialising buttons...");
-    buttons.begin();
-    Serial.println("Buttons initialised");
+    //Serial.println("Initialising buttons...");
+    //buttons.begin();
+    //Serial.println("Buttons initialised");
     Serial.println("Initialising safetyMonitor...");
     safetyMonitor.begin();
     Serial.println("safetyMonitor initialised");
@@ -267,19 +268,26 @@ void setup() {
     Serial.println("Initialising stateMachine...");
     stateMachine.begin();
     Serial.println("stateMachine initialised");
-    //Serial.println("Initialising stepperLeft...");
-    //stepperLeft.begin();
-    //Serial.println("stepperLeft initialised");
-    //Serial.println("Initialising stepperRight...");
-    //stepperRight.begin();
-    //Serial.println("stepperRight initialised");
+    Serial.println("Initialising stepperLeft...");
+    stepperLeft.begin();
+    Serial.println("stepperLeft initialised");
+    Serial.println("Initialising stepperRight...");
+    stepperRight.begin();
+    Serial.println("stepperRight initialised");
     Serial.println("Initialising doorActuator...");
     doorActuator.begin();
     Serial.println("doorActuator initialised");
+    Serial.println("Initialising voiceModule");
+    voiceModule.begin();
+    Serial.println("voiceModule initialised...");
 
     // Set initial stepper directions (opposite for swing motion)
     stepperLeft.setDirection(true);   // Clockwise
     stepperRight.setDirection(false); // Counter-clockwise
+
+    stateMachine.setBuzzer(&buzzer);
+    stateMachine.setDoorActuator(&doorActuator);
+    stateMachine.setDoorTimeout(5000);
 
     // Startup beep
     buzzer.beep(1000, 100);
@@ -296,6 +304,11 @@ void loop() {
     //handleButtons();
 
     Serial.println("Loop...");
+
+    // Timeout checking
+    stateMachine.update();
+
+    voiceModule.update();
 
     // Check sensors at regular intervals
     unsigned long currentMillis = millis();
