@@ -42,7 +42,7 @@ void VoiceRecognition::update() {
 void VoiceRecognition::handleVoiceCommand(int command) {
     // Map voice commands to state machine events
     switch(command) {
-        case CMD_START:
+        case CMD_GO:
             Serial.println("VoiceRecognition: START command received");
             _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
             break;
@@ -62,7 +62,12 @@ void VoiceRecognition::handleVoiceCommand(int command) {
             _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
             break;
 
-        case CMD_DOOR:
+        case CMD_OPEN:
+            Serial.println("VoiceRecognition: DOOR command received");
+            _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+            break;
+
+        case CMD_CLOSE:
             Serial.println("VoiceRecognition: DOOR command received");
             _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
             break;

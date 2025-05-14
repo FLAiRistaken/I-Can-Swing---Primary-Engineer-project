@@ -10,7 +10,7 @@
 #include "PressureSensor.h"
 #include "ActuatorDriver.h"
 #include "SafetyMonitor.h"
-
+#include "VoiceRecognition.h"
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
@@ -25,6 +25,7 @@ UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Fr
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
 ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine);
+VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 
 // Create SafetyMonitor instance
 SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
@@ -247,9 +248,9 @@ void setup() {
     Serial.println("Initialising display...");
     display.begin();
     Serial.println("Display initialised");
-    Serial.println("Initialising buttons...");
-    buttons.begin();
-    Serial.println("Buttons initialised");
+    //Serial.println("Initialising buttons...");
+    //buttons.begin();
+    //Serial.println("Buttons initialised");
     Serial.println("Initialising safetyMonitor...");
     safetyMonitor.begin();
     Serial.println("safetyMonitor initialised");
@@ -276,6 +277,9 @@ void setup() {
     Serial.println("Initialising doorActuator...");
     doorActuator.begin();
     Serial.println("doorActuator initialised");
+    Serial.println("Initialising voiceModule");
+    voiceModule.begin();
+    Serial.println("voiceModule initialised...");
 
     // Set initial stepper directions (opposite for swing motion)
     stepperLeft.setDirection(true);   // Clockwise
@@ -303,6 +307,8 @@ void loop() {
 
     // Timeout checking
     stateMachine.update();
+
+    voiceModule.update();
 
     // Check sensors at regular intervals
     unsigned long currentMillis = millis();

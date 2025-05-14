@@ -67,7 +67,7 @@ void StepperDriver::disable() {
     _enabled = false;
     _running = false;
     setPinsLow(); // Set all control pins low to disable motor
-    Serial.println("StepperDriver: Disabled");
+    //Serial.println("StepperDriver: Disabled");
 }
 
 void StepperDriver::startContinuous() {
@@ -83,7 +83,7 @@ void StepperDriver::startContinuous() {
 void StepperDriver::stop() {
     _running = false;
     _targetSteps = 0;
-    Serial.println("StepperDriver: Stopped");
+    //Serial.println("StepperDriver: Stopped");
 }
 
 void StepperDriver::step(int steps) {

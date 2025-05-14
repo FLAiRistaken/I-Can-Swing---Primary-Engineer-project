@@ -16,7 +16,7 @@ constexpr uint8_t PIN_STEPPER1_IN2 = 4;
 constexpr uint8_t PIN_STEPPER1_IN3 = 5;
 constexpr uint8_t PIN_STEPPER1_IN4 = 6;
 
-// Second motor if needed
+// Second motor if needed - Set to the reverse of
 constexpr uint8_t PIN_STEPPER2_IN1 = 6;
 constexpr uint8_t PIN_STEPPER2_IN2 = 5;
 constexpr uint8_t PIN_STEPPER2_IN3 = 4;
@@ -35,7 +35,7 @@ constexpr uint8_t PIN_BTN_DOOR       = A4;   // D16
 
 // ---- Sensors ----
 // Pressure sensor (analog only)
-constexpr uint8_t PIN_PRESSURE_SENSOR = A5;  // Analog input
+constexpr uint8_t PIN_PRESSURE_SENSOR = A3;  // Analog input
 
 // Ultrasonic Sensor 1 (front, use available digital pins)
 constexpr uint8_t PIN_ULTRASONIC1_TRIG = 10;  // Already used for stepper1 enable, if conflict, move to another unused pin
@@ -46,12 +46,12 @@ constexpr uint8_t PIN_ULTRASONIC2_TRIG = 12;
 constexpr uint8_t PIN_ULTRASONIC2_ECHO = 13;
 
 // ---- I2C Display ----
-constexpr uint8_t PIN_DISPLAY_SDA = A4; // Reserved for I2C
-constexpr uint8_t PIN_DISPLAY_SCL = A5; // Reserved for I2C
+constexpr uint8_t PIN_DISPLAY_SDA = A5; // Reserved for I2C
+constexpr uint8_t PIN_DISPLAY_SCL = A4; // Reserved for I2C
 
 // ---- Voice Recognition Module (SoftwareSerial, pick any free digital pins except D0/D1, A4/A5) ----
-constexpr uint8_t PIN_VOICE_RX = 0;  // Example: D0 (if not used elsewhere)
-constexpr uint8_t PIN_VOICE_TX = 1;  // Example: D1 (if not used elsewhere)
+constexpr uint8_t PIN_VOICE_RX = 8;  // Example: D8 (if not used elsewhere)
+constexpr uint8_t PIN_VOICE_TX = 7;  // Example: D7 (if not used elsewhere)
 
 // ========================
 // System Constants
