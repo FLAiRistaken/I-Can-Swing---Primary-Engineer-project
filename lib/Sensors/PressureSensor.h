@@ -10,10 +10,10 @@ public:
     void begin();
 
     // Reads the raw analog value
-    int readRawValue();
+    virtual int readRawValue();
 
     // Checks if the pressure threshold is exceeded
-    bool isOccupied();
+    virtual bool isOccupied();
 
     // Get threshold and last reading
     int getThreshold() const;

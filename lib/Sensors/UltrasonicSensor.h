@@ -10,7 +10,7 @@ public:
     void begin();
 
     // Measure distance (blocking method)
-    float measureDistance();
+    virtual float measureDistance();
 
     // Non-blocking measurement methods
     void startMeasurement();

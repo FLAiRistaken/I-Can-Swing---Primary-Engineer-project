@@ -30,6 +30,7 @@ public:
     SafetyStatus checkObstacles();
     SafetyStatus checkUserPresence();
     SafetyStatus checkSystemHealth();  // For future expansion
+    SafetyStatus checkMotorOperation();
 
     void updateMotorStatus(bool isRunning, uint16_t currentSpeed);
 
@@ -76,7 +77,6 @@ private:
     // Handle safety status changes
     void handleSafetyStatus(SafetyStatus newStatus);
     bool detectRapidObstacleChanges();
-    SafetyStatus checkMotorOperation();
 
     // Swing phase tracking
     enum SwingPhase {

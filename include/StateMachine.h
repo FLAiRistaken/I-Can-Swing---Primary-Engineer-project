@@ -56,13 +56,13 @@ public:
     void update(); // Call in loop to check timeouts
 
     // Process an event and update state
-    void processEvent(Event event);
+    virtual void processEvent(Event event);
 
     // Get current state
-    State getCurrentState() const;
+    virtual State getCurrentState() const;
 
     // Get current speed
-    Speed getCurrentSpeed() const;
+    virtual Speed getCurrentSpeed() const;
 
     // Get string descriptions of states for display
     const char* getStateString() const;
