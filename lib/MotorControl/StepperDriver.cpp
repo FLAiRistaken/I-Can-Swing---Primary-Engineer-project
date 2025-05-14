@@ -52,6 +52,10 @@ void StepperDriver::setSpeed(uint16_t rpm) {
     Serial.println(" RPM");
 }
 
+uint16_t StepperDriver::getSpeed() {
+    return _speed;
+}
+
 void StepperDriver::setDirection(bool clockwise) {
     _clockwise = clockwise;
     // Note: Stepper library handles direction internally

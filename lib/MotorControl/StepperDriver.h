@@ -15,6 +15,8 @@ public:
     // Speed control in RPM (not steps per second like before)
     void setSpeed(uint16_t rpm);
 
+    uint16_t getSpeed();
+
     // Direction control (maintained for compatibility)
     void setDirection(bool clockwise);
 

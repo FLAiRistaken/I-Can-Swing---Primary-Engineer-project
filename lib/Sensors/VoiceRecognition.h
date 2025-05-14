@@ -21,6 +21,11 @@ class VoiceRecognition {
     friend void test_close_command();
     friend void test_unknown_command();
     friend void test_multiple_commands();
+    friend void test_go_command_starts_motors();
+    friend void test_stop_command_stops_motors();
+    friend void test_faster_command_increases_speed();
+    friend void test_slower_command_decreases_speed();
+    friend void test_command_sequence();
 public:
     // Voice commands (must match indices used during training)
     enum Command {
