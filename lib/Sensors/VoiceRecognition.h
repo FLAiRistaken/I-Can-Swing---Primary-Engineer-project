@@ -40,7 +40,7 @@ public:
 
     VoiceRecognition(uint8_t rxPin, uint8_t txPin, StateMachine* stateMachine);
     void begin();
-    void update();  // Call this in loop() to process voice commands
+    virtual void update();  // Call this in loop() to process voice commands
 
 private:
     VR myVR;  // Voice recognition object
@@ -50,5 +50,7 @@ private:
     // Records for commands (must be trained)
     uint8_t records[CMD_COUNT];
 
-    void handleVoiceCommand(int command);
+protected:
+    virtual void handleVoiceCommand(int command);
 };
+

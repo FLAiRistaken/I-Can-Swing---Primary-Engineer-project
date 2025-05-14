@@ -13,27 +13,27 @@ public:
     void begin();
 
     // Speed control in RPM (not steps per second like before)
-    void setSpeed(uint16_t rpm);
+    virtual void setSpeed(uint16_t rpm);
 
-    uint16_t getSpeed();
+    virtual uint16_t getSpeed();
 
     // Direction control (maintained for compatibility)
     void setDirection(bool clockwise);
 
     // Enable/disable control
-    void enable();
-    void disable();
+    virtual void enable();
+    virtual void disable();
 
     // Movement control methods
-    void startContinuous();  // Start continuous rotation
-    void stop();             // Stop motion
-    void step(int steps);    // Move specific number of steps
+    virtual void startContinuous();  // Start continuous rotation
+    virtual void stop();             // Stop motion
+    virtual void step(int steps);    // Move specific number of steps
 
     // Must be called in loop() to handle stepping
-    void update();
+    virtual void update();
 
     // Status query
-    bool isRunning() const;
+    virtual bool isRunning() const;
 
 private:
     Stepper _stepper;         // Arduino's Stepper library instance
