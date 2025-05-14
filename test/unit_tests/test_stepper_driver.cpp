@@ -1,280 +1,256 @@
-// test/unit_tests/test_voice_recognition.cpp
+// test/unit_tests/test_stepper_driver.cpp
 #include <unity.h>
-#include "VoiceRecognition.h"
-#include "StateMachine.h"
+#include "StepperDriver.h"
 #include "Configuration.h"
 
-// Mock VR library to simulate voice recognition
-class MockVR {
-public:
-    MockVR(uint8_t rxPin, uint8_t txPin) : _rxPin(rxPin), _txPin(txPin), _beginCalled(false),
-                                          _loadCalled(false), _recognizeCalled(false) {
-        // Simulate successful initialization
-    }
+// Mock Arduino functions
+namespace {
+    // Track digital pin states
+    int mockPinStates[14] = {0};
 
-    bool begin(long baudrate) {
-        _beginCalled = true;
-        _baudrate = baudrate;
-        return true;
-    }
+    // Track calls to the Stepper library
+    struct StepperCall {
+        int numSteps;
+        uint16_t speed;
+    };
 
-    bool load(uint8_t* records, uint8_t count) {
-        _loadCalled = true;
-        _loadCount = count;
-        // Copy record IDs
-        for (int i = 0; i < count && i < 10; i++) {
-            _loadedRecords[i] = records[i];
+    StepperCall stepperCalls[10] = {};
+    int stepperCallCount = 0;
+    int stepperStepCalls = 0;
+    int stepperSetSpeedCalls = 0;
+    uint16_t lastSpeedSet = 0;
+
+    unsigned long mockMicros = 0;
+
+    void resetMocks() {
+        for (int i = 0; i < 14; i++) {
+            mockPinStates[i] = 0;
         }
-        return _loadShouldSucceed;
+
+        for (int i = 0; i < 10; i++) {
+            stepperCalls[i] = {0, 0};
+        }
+
+        stepperCallCount = 0;
+        stepperStepCalls = 0;
+        stepperSetSpeedCalls = 0;
+        lastSpeedSet = 0;
+        mockMicros = 0;
     }
+}
 
-    int recognize(uint8_t* buf, int timeout) {
-        _recognizeCalled = true;
-        _recognizeTimeout = timeout;
-
-        if (!_simulateRecognition) return 0;
-
-        // Simulate a recognition result
-        buf[0] = 0; // Header
-        buf[1] = _simulatedCommand; // Command ID
-        return 2; // Number of bytes read
+// Mock digital/analog Arduino functions
+void digitalWrite(uint8_t pin, uint8_t val) {
+    if (pin < 14) {
+        mockPinStates[pin] = val;
     }
+}
 
-    // Test control methods
-    void setLoadSuccess(bool success) { _loadShouldSucceed = success; }
-    void simulateCommand(int command) {
-        _simulateRecognition = true;
-        _simulatedCommand = command;
-    }
-    void clearSimulation() { _simulateRecognition = false; }
+void pinMode(uint8_t pin, uint8_t mode) {
+    // Just track that it was called
+}
 
-    // Inspection methods
-    bool wasBeginCalled() const { return _beginCalled; }
-    bool wasLoadCalled() const { return _loadCalled; }
-    bool wasRecognizeCalled() const { return _recognizeCalled; }
-    int getLoadCount() const { return _loadCount; }
+unsigned long micros() {
+    return mockMicros;
+}
 
-private:
-    uint8_t _rxPin;
-    uint8_t _txPin;
-    long _baudrate;
-    bool _beginCalled;
-    bool _loadCalled;
-    bool _recognizeCalled;
-    int _recognizeTimeout;
-    int _loadCount;
-    uint8_t _loadedRecords[10];
-    bool _loadShouldSucceed = true;
-    bool _simulateRecognition = false;
-    uint8_t _simulatedCommand = 0;
-};
-
-// Mock StateMachine to verify events
-class MockStateMachine : public StateMachine {
+// Mock Stepper class
+class Stepper {
 public:
-    MockStateMachine() : _lastEvent(EVENT_NONE), _eventCount(0) {}
+    Stepper(int stepsPerRev, int pin1, int pin2, int pin3, int pin4)
+      : _stepsPerRev(stepsPerRev), _pin1(pin1), _pin2(pin2), _pin3(pin3), _pin4(pin4) {}
 
-    void processEvent(Event event) override {
-        _lastEvent = event;
-        _eventHistory[_eventCount % 10] = event;
-        _eventCount++;
+    void setSpeed(uint16_t rpm) {
+        lastSpeedSet = rpm;
+        stepperSetSpeedCalls++;
     }
 
-    // Test inspection methods
-    Event getLastEvent() const { return _lastEvent; }
-    int getEventCount() const { return _eventCount; }
-
-    void reset() {
-        _lastEvent = EVENT_NONE;
-        _eventCount = 0;
+    void step(int steps) {
+        if (stepperCallCount < 10) {
+            stepperCalls[stepperCallCount].numSteps = steps;
+            stepperCalls[stepperCallCount].speed = lastSpeedSet;
+            stepperCallCount++;
+        }
+        stepperStepCalls++;
     }
 
 private:
-    Event _lastEvent;
-    Event _eventHistory[10];
-    int _eventCount;
+    int _stepsPerRev;
+    int _pin1, _pin2, _pin3, _pin4;
 };
 
-// Replace the standard VR class with our mock for testing
-#define VR MockVR
-
-// Test fixtures
-MockStateMachine mockStateMachine;
-VoiceRecognition* voiceRecognition;
-
+// Test fixture
 void setUp(void) {
-    // Create fresh instance for each test
-    mockStateMachine.reset();
-    voiceRecognition = new VoiceRecognition(PIN_VOICE_RX, PIN_VOICE_TX, &mockStateMachine);
+    resetMocks();
 }
 
 void tearDown(void) {
-    delete voiceRecognition;
+    // Cleanup
 }
 
 // Test cases
-void test_initialization() {
-    voiceRecognition->begin();
+void test_initialization(void) {
+    // Create driver with test pins
+    StepperDriver driver(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+    driver.begin();
 
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    TEST_ASSERT_TRUE(vr.wasBeginCalled());
-    TEST_ASSERT_TRUE(vr.wasLoadCalled());
-    TEST_ASSERT_EQUAL(VoiceRecognition::CMD_COUNT, vr.getLoadCount());
+    // Verify all pins set to LOW initially
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN1]);
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN2]);
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN3]);
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN4]);
+
+    // Verify setSpeed was called with default 60 RPM
+    TEST_ASSERT_EQUAL(1, stepperSetSpeedCalls);
+    TEST_ASSERT_EQUAL(60, lastSpeedSet);
 }
 
-void test_failed_initialization() {
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.setLoadSuccess(false);
+void test_speed_control(void) {
+    StepperDriver driver(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+    driver.begin();
 
-    voiceRecognition->begin();
+    resetMocks(); // Clear initialization calls
 
-    TEST_ASSERT_TRUE(vr.wasBeginCalled());
-    TEST_ASSERT_TRUE(vr.wasLoadCalled());
-    // Even with failed load, it should continue
+    // Test setting various speeds
+    driver.setSpeed(100);
+    TEST_ASSERT_EQUAL(100, lastSpeedSet);
+
+    driver.setSpeed(200);
+    TEST_ASSERT_EQUAL(200, lastSpeedSet);
+
+    // Verify total calls
+    TEST_ASSERT_EQUAL(2, stepperSetSpeedCalls);
 }
 
-void test_update_no_command() {
-    voiceRecognition->begin();
+void test_direct_stepping(void) {
+    StepperDriver driver(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+    driver.begin();
+    driver.enable(); // Must enable first
 
-    // No command simulated
-    voiceRecognition->update();
+    resetMocks(); // Clear initialization calls
 
-    // Should check for commands
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    TEST_ASSERT_TRUE(vr.wasRecognizeCalled());
+    // Test direct stepping
+    driver.step(100); // 100 steps forward
+    TEST_ASSERT_EQUAL(1, stepperStepCalls);
+    TEST_ASSERT_EQUAL(100, stepperCalls[0].numSteps);
 
-    // But no event should be sent to state machine
-    TEST_ASSERT_EQUAL(0, mockStateMachine.getEventCount());
+    driver.step(-50); // 50 steps backward
+    TEST_ASSERT_EQUAL(2, stepperStepCalls);
+    TEST_ASSERT_EQUAL(-50, stepperCalls[1].numSteps);
 }
 
-void test_go_command() {
-    voiceRecognition->begin();
+void test_enable_disable(void) {
+    StepperDriver driver(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+    driver.begin();
 
-    // Simulate GO command
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.simulateCommand(VoiceRecognition::CMD_GO);
+    resetMocks();
 
-    voiceRecognition->update();
+    // Initially disabled, should not step
+    driver.step(100);
+    TEST_ASSERT_EQUAL(0, stepperStepCalls);
 
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_START_PRESSED, mockStateMachine.getLastEvent());
+    // Enable and step
+    driver.enable();
+    driver.step(100);
+    TEST_ASSERT_EQUAL(1, stepperStepCalls);
+
+    // Disable and try to step
+    driver.disable();
+    driver.step(100);
+    TEST_ASSERT_EQUAL(1, stepperStepCalls); // Count shouldn't change
+
+    // Verify pins set low on disable
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN1]);
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN2]);
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN3]);
+    TEST_ASSERT_EQUAL(LOW, mockPinStates[PIN_STEPPER1_IN4]);
 }
 
-void test_stop_command() {
-    voiceRecognition->begin();
+void test_continuous_rotation(void) {
+    StepperDriver driver(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+    driver.begin();
+    driver.enable();
+    driver.setSpeed(60); // 60 RPM = 1 revolution per second
 
-    // Simulate STOP command
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.simulateCommand(VoiceRecognition::CMD_STOP);
+    resetMocks();
 
-    voiceRecognition->update();
+    // Start continuous clockwise rotation
+    driver.setDirection(true);
+    driver.startContinuous();
 
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_STOP_PRESSED, mockStateMachine.getLastEvent());
+    // Verify running flag
+    TEST_ASSERT_TRUE(driver.isRunning());
+
+    // Setup timing for update: 200-step motor at 60 RPM = 3.33 steps per second
+    // So about 300ms per step
+    mockMicros = 1000000; // 1 second
+    driver.update();
+
+    // Should make one step
+    TEST_ASSERT_EQUAL(1, stepperStepCalls);
+    TEST_ASSERT_EQUAL(1, stepperCalls[0].numSteps); // Clockwise = positive
+
+    // Another update without time passing shouldn't step
+    driver.update();
+    TEST_ASSERT_EQUAL(1, stepperStepCalls);
+
+    // Advance time and update again
+    mockMicros += 300000; // 300ms
+    driver.update();
+    TEST_ASSERT_EQUAL(2, stepperStepCalls);
+
+    // Stop rotation
+    driver.stop();
+    TEST_ASSERT_FALSE(driver.isRunning());
+
+    // Update shouldn't step after stop
+    mockMicros += 300000;
+    driver.update();
+    TEST_ASSERT_EQUAL(2, stepperStepCalls);
 }
 
-void test_faster_command() {
-    voiceRecognition->begin();
+void test_direction_control(void) {
+    StepperDriver driver(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
+    driver.begin();
+    driver.enable();
 
-    // Simulate FASTER command
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.simulateCommand(VoiceRecognition::CMD_FASTER);
+    resetMocks();
 
-    voiceRecognition->update();
+    // Set to clockwise, make continuous and update
+    driver.setDirection(true);
+    driver.startContinuous();
 
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_SPEED_UP, mockStateMachine.getLastEvent());
+    mockMicros = 1000000;
+    driver.update();
+    TEST_ASSERT_EQUAL(1, stepperCalls[0].numSteps); // Positive = clockwise
+
+    driver.stop();
+
+    // Change direction to counter-clockwise
+    driver.setDirection(false);
+    driver.startContinuous();
+
+    // Reset mocks and update
+    resetMocks();
+    mockMicros = 1000000;
+    driver.update();
+    TEST_ASSERT_EQUAL(-1, stepperCalls[0].numSteps); // Negative = counter-clockwise
 }
 
-void test_slower_command() {
-    voiceRecognition->begin();
-
-    // Simulate SLOWER command
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.simulateCommand(VoiceRecognition::CMD_SLOWER);
-
-    voiceRecognition->update();
-
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_SPEED_DOWN, mockStateMachine.getLastEvent());
-}
-
-void test_open_command() {
-    voiceRecognition->begin();
-
-    // Simulate OPEN command
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.simulateCommand(VoiceRecognition::CMD_OPEN);
-
-    voiceRecognition->update();
-
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_DOOR_TOGGLE, mockStateMachine.getLastEvent());
-}
-
-void test_close_command() {
-    voiceRecognition->begin();
-
-    // Simulate CLOSE command
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.simulateCommand(VoiceRecognition::CMD_CLOSE);
-
-    voiceRecognition->update();
-
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_DOOR_TOGGLE, mockStateMachine.getLastEvent());
-}
-
-void test_unknown_command() {
-    voiceRecognition->begin();
-
-    // Simulate unknown command ID
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-    vr.simulateCommand(99); // Not defined in Command enum
-
-    voiceRecognition->update();
-
-    // Should not generate any event
-    TEST_ASSERT_EQUAL(0, mockStateMachine.getEventCount());
-}
-
-void test_multiple_commands() {
-    voiceRecognition->begin();
-    auto& vr = reinterpret_cast<MockVR&>(voiceRecognition->myVR);
-
-    // Simulate sequence: GO, FASTER, FASTER, STOP
-    vr.simulateCommand(VoiceRecognition::CMD_GO);
-    voiceRecognition->update();
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_START_PRESSED, mockStateMachine.getLastEvent());
-
-    vr.simulateCommand(VoiceRecognition::CMD_FASTER);
-    voiceRecognition->update();
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_SPEED_UP, mockStateMachine.getLastEvent());
-
-    vr.simulateCommand(VoiceRecognition::CMD_FASTER);
-    voiceRecognition->update();
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_SPEED_UP, mockStateMachine.getLastEvent());
-
-    vr.simulateCommand(VoiceRecognition::CMD_STOP);
-    voiceRecognition->update();
-    TEST_ASSERT_EQUAL(StateMachine::EVENT_STOP_PRESSED, mockStateMachine.getLastEvent());
-
-    TEST_ASSERT_EQUAL(4, mockStateMachine.getEventCount());
-}
-
-void run_voice_recognition_tests() {
+void run_stepper_driver_tests() {
     UNITY_BEGIN();
     RUN_TEST(test_initialization);
-    RUN_TEST(test_failed_initialization);
-    RUN_TEST(test_update_no_command);
-    RUN_TEST(test_go_command);
-    RUN_TEST(test_stop_command);
-    RUN_TEST(test_faster_command);
-    RUN_TEST(test_slower_command);
-    RUN_TEST(test_open_command);
-    RUN_TEST(test_close_command);
-    RUN_TEST(test_unknown_command);
-    RUN_TEST(test_multiple_commands);
+    RUN_TEST(test_speed_control);
+    RUN_TEST(test_direct_stepping);
+    RUN_TEST(test_enable_disable);
+    RUN_TEST(test_continuous_rotation);
+    RUN_TEST(test_direction_control);
     UNITY_END();
 }
 
 void setup() {
     delay(2000);
-    run_voice_recognition_tests();
+    run_stepper_driver_tests();
 }
 
 void loop() {
