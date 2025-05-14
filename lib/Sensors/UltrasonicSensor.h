@@ -20,6 +20,9 @@ public:
     // Get sensor information
     const char* getName() const;
 
+    // Timeout constants
+    static const unsigned long MEASUREMENT_TIMEOUT = 38000; // 38ms timeout (max HC-SR04 range)
+
 private:
     uint8_t _trigPin;
     uint8_t _echoPin;
@@ -29,7 +32,4 @@ private:
     volatile unsigned long _echoTime;
     volatile bool _measuring;
     float _lastDistance;
-
-    // Timeout constants
-    static const unsigned long MEASUREMENT_TIMEOUT = 38000; // 38ms timeout (max HC-SR04 range)
 };
