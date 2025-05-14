@@ -6,7 +6,21 @@
 #include "VoiceRecognitionV3.h"
 #include "StateMachine.h"
 
+class MockVR;
+
 class VoiceRecognition {
+    friend class MockVR;
+    friend void test_initialization();
+    friend void test_failed_initialization();
+    friend void test_update_no_command();
+    friend void test_go_command();
+    friend void test_stop_command();
+    friend void test_faster_command();
+    friend void test_slower_command();
+    friend void test_open_command();
+    friend void test_close_command();
+    friend void test_unknown_command();
+    friend void test_multiple_commands();
 public:
     // Voice commands (must match indices used during training)
     enum Command {
