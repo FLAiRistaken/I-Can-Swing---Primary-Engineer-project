@@ -51,6 +51,49 @@ private:
         bool testDirection;
     } _testParams;
 
+    // Safety testing state tracking
+    bool _safetyTestActive;
+    String _currentSafetyTest;
+    unsigned long _safetyTestStartTime;
+    unsigned long _safetyTestEndTime;
+    int _safetyTestStep;
+    float _safetyTestThreshold;
+    bool _safetyOverrideEnabled;
+    unsigned long _safetyOverrideTimeout;
+
+    // Safety test logs
+    struct SafetyEventLog {
+        unsigned long timestamp;
+        String eventType;
+        String description;
+        String status;
+        unsigned long responseTime;
+    };
+    static const uint8_t MAX_SAFETY_LOGS = 20;
+    SafetyEventLog _safetyEventLogs[MAX_SAFETY_LOGS];
+    uint8_t _safetyLogIndex;
+
+    // Safety testing methods
+    void handleSafetyTestAPI(WiFiClient& client, String command);
+    void triggerSafetyEvent(WiFiClient& client, String params);
+    void runThresholdTest(WiFiClient& client, String params);
+    void measureResponseTime(WiFiClient& client, String params);
+    void runAutomatedTestSequence(WiFiClient& client);
+    void getSafetyTestStatus(WiFiClient& client);
+    void getSafetyEventLogs(WiFiClient& client);
+    void toggleSafetyOverride(WiFiClient& client, bool enable);
+    void resetSafetyLogs(WiFiClient& client);
+    void sendSafetyTestPage(WiFiClient& client);
+
+    // Safety simulation methods
+    bool simulateObstacle(float distance, String sensor);
+    bool simulateUserDeparture();
+    bool simulateMotorStall();
+
+    // Logging methods
+    void logSafetyEvent(String eventType, String description, String status, unsigned long responseTime);
+    String generateSafetyTestHTML();
+
     // Page handlers
     void sendHomePage(WiFiClient& client);
     void sendControlPage(WiFiClient& client);
@@ -65,7 +108,7 @@ private:
     void handleControlCommand(WiFiClient& client, String command);
     void handleConfigUpdate(WiFiClient& client, String params);
     void handleCalibrationAPI(WiFiClient& client, String command);
-    void handleMotorTestAPI(WifiClient& client, String command);
+    void handleMotorTestAPI(WiFiClient& client, String command);
 
     // Calibration methods
     void startCalibration(WiFiClient& client, String sensorType);

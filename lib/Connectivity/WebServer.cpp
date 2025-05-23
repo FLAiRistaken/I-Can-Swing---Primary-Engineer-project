@@ -6,7 +6,10 @@ WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
       _calibrationActive(false), _calibrationStartTime(0), _calibrationStep(0),
       _currentSensorCalibrating(""), _motorTestActive(false), _currentMotorTest(""),
       _motorTestStartTime(0), _motorTestStep(0), _leftMotorPosition(0),
-      _rightMotorPosition(0), _motorTestSafetyCheck(true) {}
+      _rightMotorPosition(0), _motorTestSafetyCheck(true), _safetyTestActive(false),
+      _currentSafetyTest(""), _safetyTestStartTime(0), _safetyTestEndTime(0),
+      _safetyTestStep(0), _safetyTestThreshold(0.0f), _safetyOverrideEnabled(false),
+      _safetyOverrideTimeout(0), _safetyLogIndex(0) {}
 
 void WebServer::begin(int port) {
     _server.begin();
@@ -43,6 +46,14 @@ void WebServer::handleClient() {
             sendConfigPage(client);
         } else if (request.indexOf("GET /debug") >= 0) {
             sendDebugPage(client);
+        } else if (request.indexOf("GET /safety-test") >= 0) {
+            sendSafetyTestPage(client);
+        } else if (request.indexOf("GET /api/safety-test") >= 0) {
+            // Extract safety test command
+            int apiStart = request.indexOf("/api/safety-test") + 16;
+            int apiEnd = request.indexOf(" ", apiStart);
+            String command = request.substring(apiStart, apiEnd);
+            handleSafetyTestAPI(client, command);
         } else if (request.indexOf("GET /motor-test") >= 0) {
             sendMotorTestPage(client);
         } else if (request.indexOf("GET /api/motor-test") >= 0) {
@@ -70,6 +81,946 @@ void WebServer::handleClient() {
         client.stop();
         Serial.println("Client disconnected");
     }
+}
+
+// Handle safety test API requests
+void WebServer::handleSafetyTestAPI(WiFiClient& client, String command) {
+    Serial.print("Safety Test API Command: ");
+    Serial.println(command);
+
+    // Check if safety override is enabled or if we're trying to disable it
+    if (!_safetyOverrideEnabled && !command.startsWith("-override") && !command.startsWith("-status")) {
+        sendJsonResponse(client, "{\"error\":\"Safety override must be enabled for testing\"}");
+        return;
+    }
+
+    // Handle timeout for safety override
+    if (_safetyOverrideEnabled) {
+        unsigned long currentTime = millis();
+        if (currentTime > _safetyOverrideTimeout) {
+            _safetyOverrideEnabled = false;
+            Serial.println("Safety override automatically disabled due to timeout");
+            if (!command.startsWith("-override") && !command.startsWith("-status")) {
+                sendJsonResponse(client, "{\"error\":\"Safety override timeout - must be re-enabled\"}");
+                return;
+            }
+        }
+    }
+
+    if (command.startsWith("-trigger")) {
+        triggerSafetyEvent(client, command);
+    } else if (command.startsWith("-threshold")) {
+        runThresholdTest(client, command);
+    } else if (command.startsWith("-response-time")) {
+        measureResponseTime(client, command);
+    } else if (command == "-automated-test") {
+        runAutomatedTestSequence(client);
+    } else if (command == "-status") {
+        getSafetyTestStatus(client);
+    } else if (command == "-logs") {
+        getSafetyEventLogs(client);
+    } else if (command.startsWith("-override")) {
+        if (command.indexOf("enable") > 0) {
+            toggleSafetyOverride(client, true);
+        } else if (command.indexOf("disable") > 0) {
+            toggleSafetyOverride(client, false);
+        } else {
+            sendJsonResponse(client, "{\"error\":\"Invalid override command\"}");
+        }
+    } else if (command == "-reset-logs") {
+        resetSafetyLogs(client);
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Unknown safety test command\"}");
+    }
+}
+
+// Trigger a specific safety event
+void WebServer::triggerSafetyEvent(WiFiClient& client, String params) {
+    // Extract parameters: -trigger?event=obstacle&distance=10&sensor=front
+    int eventStart = params.indexOf("event=") + 6;
+    int eventEnd = params.indexOf("&", eventStart);
+    String eventType = params.substring(eventStart, eventEnd);
+
+    bool success = false;
+    String description = "";
+
+    _safetyTestActive = true;
+    _currentSafetyTest = "trigger_" + eventType;
+    _safetyTestStartTime = micros();
+
+    if (eventType == "obstacle") {
+        int distanceStart = params.indexOf("distance=") + 9;
+        int distanceEnd = params.indexOf("&", distanceStart);
+        float distance = params.substring(distanceStart, distanceEnd).toFloat();
+
+        int sensorStart = params.indexOf("sensor=") + 7;
+        String sensor = params.substring(sensorStart);
+
+        success = simulateObstacle(distance, sensor);
+        description = "Simulated " + sensor + " obstacle at " + String(distance) + "cm";
+    } else if (eventType == "user") {
+        success = simulateUserDeparture();
+        description = "Simulated user departure from swing";
+    } else if (eventType == "stall") {
+        success = simulateMotorStall();
+        description = "Simulated motor stall condition";
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Unknown safety event type\"}");
+        return;
+    }
+
+    _safetyTestEndTime = micros();
+    unsigned long responseTime = (_safetyTestEndTime - _safetyTestStartTime) / 1000; // Convert to ms
+
+    // Log the event
+    logSafetyEvent(eventType, description, success ? "SUCCESS" : "FAILED", responseTime);
+
+    String response = "{\"status\":\"" + String(success ? "success" : "failed") +
+                     "\",\"event\":\"" + eventType +
+                     "\",\"description\":\"" + description +
+                     "\",\"response_time\":" + String(responseTime) + "}";
+    sendJsonResponse(client, response);
+
+    Serial.print("Safety event triggered: ");
+    Serial.print(eventType);
+    Serial.print(" - ");
+    Serial.println(success ? "SUCCESS" : "FAILED");
+}
+
+// Run threshold testing
+void WebServer::runThresholdTest(WiFiClient& client, String params) {
+    // Extract parameters: -threshold?sensor=front&start=100&end=5&steps=20
+    int sensorStart = params.indexOf("sensor=") + 7;
+    int sensorEnd = params.indexOf("&", sensorStart);
+    String sensor = params.substring(sensorStart, sensorEnd);
+
+    int startValStart = params.indexOf("start=") + 6;
+    int startValEnd = params.indexOf("&", startValStart);
+    float startVal = params.substring(startValStart, startValEnd).toFloat();
+
+    int endValStart = params.indexOf("end=") + 4;
+    int endValEnd = params.indexOf("&", endValStart);
+    float endVal = params.substring(endValStart, endValEnd).toFloat();
+
+    int stepsStart = params.indexOf("steps=") + 6;
+    int steps = params.substring(stepsStart).toInt();
+
+    if (steps <= 0 || steps > 100) {
+        steps = 20; // Default to 20 steps
+    }
+
+    _safetyTestActive = true;
+    _currentSafetyTest = "threshold_" + sensor;
+    _safetyTestStartTime = millis();
+    _safetyTestStep = 0;
+    _safetyTestThreshold = startVal;
+
+    String response = "{\"status\":\"started\",\"test\":\"threshold\",\"sensor\":\"" + sensor +
+                     "\",\"start\":" + String(startVal) +
+                     ",\"end\":" + String(endVal) +
+                     ",\"steps\":" + String(steps) + "}";
+    sendJsonResponse(client, response);
+
+    // Perform threshold test - adjust gradually from start to end value
+    float stepSize = (startVal - endVal) / steps;
+
+    for (int i = 0; i <= steps; i++) {
+        float currentThreshold = startVal - (stepSize * i);
+
+        // Set the threshold in SafetyMonitor temporarily
+        if (sensor == "front" || sensor == "rear") {
+            // This would need to be implemented in SafetyMonitor
+            // _safetyMonitor->setTemporaryThreshold(sensor, currentThreshold);
+        }
+
+        // Simulate obstacle at current threshold
+        bool detected = simulateObstacle(currentThreshold, sensor);
+        String stepDescription = "Threshold test: " + sensor + " at " + String(currentThreshold) + "cm";
+
+        // Log this step
+        logSafetyEvent("threshold", stepDescription,
+                       detected ? "DETECTED" : "NOT DETECTED", 0);
+
+        // Wait briefly between steps
+        delay(500);
+
+        // If a safety event was triggered, end the test
+        if (detected && _stateMachine->getCurrentState() != StateMachine::STATE_IDLE) {
+            break;
+        }
+    }
+
+    // Reset any temporary thresholds
+    // _safetyMonitor->resetThresholds();
+
+    _safetyTestActive = false;
+    _currentSafetyTest = "";
+
+    Serial.println("Threshold test completed");
+}
+
+// Measure response time for a safety event
+void WebServer::measureResponseTime(WiFiClient& client, String params) {
+    // Extract parameters: -response-time?event=obstacle&iterations=5
+    int eventStart = params.indexOf("event=") + 6;
+    int eventEnd = params.indexOf("&", eventStart);
+    String eventType = params.substring(eventStart, eventEnd);
+
+    int iterStart = params.indexOf("iterations=") + 11;
+    int iterations = params.substring(iterStart).toInt();
+
+    if (iterations <= 0 || iterations > 20) {
+        iterations = 5; // Default to 5 iterations
+    }
+
+    _safetyTestActive = true;
+    _currentSafetyTest = "response_" + eventType;
+
+    String response = "{\"status\":\"started\",\"test\":\"response_time\",\"event\":\"" + eventType +
+                     "\",\"iterations\":" + String(iterations) + "}";
+    sendJsonResponse(client, response);
+
+    // Perform multiple response time measurements
+    unsigned long totalResponseTime = 0;
+    int successCount = 0;
+
+    for (int i = 0; i < iterations; i++) {
+        // Reset to IDLE state before each test
+        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+        delay(500); // Give time to stabilize
+
+        // Start measurement
+        _safetyTestStartTime = micros();
+
+        // Trigger appropriate safety event
+        bool success = false;
+        if (eventType == "obstacle") {
+            success = simulateObstacle(5.0, "front"); // Critical distance
+        } else if (eventType == "user") {
+            success = simulateUserDeparture();
+        } else if (eventType == "stall") {
+            success = simulateMotorStall();
+        }
+
+        // Wait for state change or timeout
+        unsigned long startWait = millis();
+        while (_stateMachine->getCurrentState() == StateMachine::STATE_IDLE &&
+               millis() - startWait < 2000) {
+            delay(10);
+        }
+
+        _safetyTestEndTime = micros();
+        unsigned long responseTime = (_safetyTestEndTime - _safetyTestStartTime) / 1000; // Convert to ms
+
+        // Log this iteration
+        String iterDescription = "Response time test #" + String(i + 1) +
+                                " for " + eventType + " event";
+        logSafetyEvent("response", iterDescription,
+                       success ? "SUCCESS" : "FAILED", responseTime);
+
+        if (success) {
+            totalResponseTime += responseTime;
+            successCount++;
+        }
+
+        // Allow system to recover between tests
+        delay(1000);
+    }
+
+    // Calculate average response time
+    unsigned long avgResponseTime = (successCount > 0) ? totalResponseTime / successCount : 0;
+
+    // Log summary
+    String summaryDescription = "Response time test summary for " + eventType +
+                              " event (" + String(successCount) + "/" + String(iterations) + " successful)";
+    logSafetyEvent("response_summary", summaryDescription, "COMPLETE", avgResponseTime);
+
+    _safetyTestActive = false;
+    _currentSafetyTest = "";
+
+    Serial.print("Response time test completed. Average: ");
+    Serial.print(avgResponseTime);
+    Serial.println(" ms");
+}
+
+// Run automated test sequence
+void WebServer::runAutomatedTestSequence(WiFiClient& client) {
+    _safetyTestActive = true;
+    _currentSafetyTest = "automated_sequence";
+    _safetyTestStartTime = millis();
+    _safetyTestStep = 0;
+
+    String response = "{\"status\":\"started\",\"test\":\"automated_sequence\"}";
+    sendJsonResponse(client, response);
+
+    // Log start of test sequence
+    logSafetyEvent("automated_test", "Starting automated safety test sequence", "STARTED", 0);
+
+    // Step 1: Front obstacle detection
+    _safetyTestStep = 1;
+    simulateObstacle(15.0, "front");
+    delay(2000);
+    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
+    delay(1000);
+
+    // Step 2: Rear obstacle detection
+    _safetyTestStep = 2;
+    simulateObstacle(15.0, "rear");
+    delay(2000);
+    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
+    delay(1000);
+
+    // Step 3: User departure detection
+    _safetyTestStep = 3;
+    // First put into swinging state
+    _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+    delay(1000);
+    simulateUserDeparture();
+    delay(2000);
+    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
+    delay(1000);
+
+    // Step 4: Motor stall detection
+    _safetyTestStep = 4;
+    // First put into swinging state
+    _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+    delay(1000);
+    simulateMotorStall();
+    delay(2000);
+    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
+    delay(1000);
+
+    // Step 5: Emergency response time
+    _safetyTestStep = 5;
+    measureResponseTime(client, "-response-time?event=obstacle&iterations=3");
+    delay(1000);
+
+    // Log completion of test sequence
+    logSafetyEvent("automated_test", "Automated safety test sequence completed", "COMPLETED", 0);
+
+    _safetyTestActive = false;
+    _currentSafetyTest = "";
+
+    Serial.println("Automated test sequence completed");
+}
+
+// Get current safety test status
+void WebServer::getSafetyTestStatus(WiFiClient& client) {
+    String response = "{";
+    response += "\"active\":" + String(_safetyTestActive ? "true" : "false") + ",";
+    response += "\"test_type\":\"" + _currentSafetyTest + "\",";
+    response += "\"override_enabled\":" + String(_safetyOverrideEnabled ? "true" : "false") + ",";
+
+    if (_safetyTestActive) {
+        unsigned long elapsed = millis() - _safetyTestStartTime;
+        response += "\"elapsed\":" + String(elapsed) + ",";
+        response += "\"step\":" + String(_safetyTestStep) + ",";
+        response += "\"threshold\":" + String(_safetyTestThreshold);
+    } else {
+        response += "\"elapsed\":0,\"step\":0,\"threshold\":0";
+    }
+
+    if (_safetyOverrideEnabled) {
+        unsigned long remainingTime = (_safetyOverrideTimeout > millis()) ?
+                                    (_safetyOverrideTimeout - millis()) / 1000 : 0;
+        response += ",\"override_timeout\":" + String(remainingTime);
+    }
+
+    response += "}";
+    sendJsonResponse(client, response);
+}
+
+// Get safety event logs
+void WebServer::getSafetyEventLogs(WiFiClient& client) {
+    String response = "{\"logs\":[";
+
+    bool first = true;
+    for (uint8_t i = 0; i < MAX_SAFETY_LOGS; i++) {
+        if (_safetyEventLogs[i].timestamp > 0) {
+            if (!first) {
+                response += ",";
+            }
+            first = false;
+
+            response += "{";
+            response += "\"timestamp\":" + String(_safetyEventLogs[i].timestamp) + ",";
+            response += "\"event\":\"" + _safetyEventLogs[i].eventType + "\",";
+            response += "\"description\":\"" + _safetyEventLogs[i].description + "\",";
+            response += "\"status\":\"" + _safetyEventLogs[i].status + "\",";
+            response += "\"response_time\":" + String(_safetyEventLogs[i].responseTime);
+            response += "}";
+        }
+    }
+
+    response += "]}";
+    sendJsonResponse(client, response);
+}
+
+// Toggle safety override mode
+void WebServer::toggleSafetyOverride(WiFiClient& client, bool enable) {
+    if (enable) {
+        _safetyOverrideEnabled = true;
+        _safetyOverrideTimeout = millis() + (5 * 60 * 1000); // 5 minute timeout
+
+        // Log safety override
+        logSafetyEvent("override", "Safety override mode enabled", "WARNING", 0);
+
+        String response = "{\"status\":\"enabled\",\"override_timeout\":300}"; // 300 seconds
+        sendJsonResponse(client, response);
+
+        Serial.println("Safety override enabled for testing (5 minute timeout)");
+    } else {
+        _safetyOverrideEnabled = false;
+
+        // Log safety override disabled
+        logSafetyEvent("override", "Safety override mode disabled", "INFO", 0);
+
+        sendJsonResponse(client, "{\"status\":\"disabled\"}");
+
+        Serial.println("Safety override disabled");
+    }
+}
+
+// Reset safety logs
+void WebServer::resetSafetyLogs(WiFiClient& client) {
+    for (uint8_t i = 0; i < MAX_SAFETY_LOGS; i++) {
+        _safetyEventLogs[i].timestamp = 0;
+    }
+    _safetyLogIndex = 0;
+
+    sendJsonResponse(client, "{\"status\":\"logs_reset\"}");
+    Serial.println("Safety logs reset");
+}
+
+// Log a safety event
+void WebServer::logSafetyEvent(String eventType, String description, String status, unsigned long responseTime) {
+    // Store in circular buffer
+    _safetyEventLogs[_safetyLogIndex].timestamp = millis();
+    _safetyEventLogs[_safetyLogIndex].eventType = eventType;
+    _safetyEventLogs[_safetyLogIndex].description = description;
+    _safetyEventLogs[_safetyLogIndex].status = status;
+    _safetyEventLogs[_safetyLogIndex].responseTime = responseTime;
+
+    // Log to serial for debugging
+    Serial.print("SAFETY LOG: [");
+    Serial.print(eventType);
+    Serial.print("] ");
+    Serial.print(description);
+    Serial.print(" - ");
+    Serial.print(status);
+    if (responseTime > 0) {
+        Serial.print(" (");
+        Serial.print(responseTime);
+        Serial.print("ms)");
+    }
+    Serial.println();
+
+    // Move to next log entry
+    _safetyLogIndex = (_safetyLogIndex + 1) % MAX_SAFETY_LOGS;
+}
+
+// Simulate an obstacle at a specific distance
+bool WebServer::simulateObstacle(float distance, String sensor) {
+    if (!_safetyOverrideEnabled) {
+        Serial.println("Safety override not enabled - cannot simulate obstacle");
+        return false;
+    }
+
+    // This needs to be implemented in SafetyMonitor to allow
+    // artificially setting sensor values for testing purposes
+    // _safetyMonitor->simulateObstacleDetection(sensor, distance);
+
+    // For now, we'll directly generate events to simulate this
+    if (distance < CRITICAL_DISTANCE_CM) {
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
+        return true;
+    } else if (distance < OBSTACLE_DISTANCE_CM) {
+        _stateMachine->processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
+        return true;
+    }
+
+    return false;
+}
+
+// Simulate user departure
+bool WebServer::simulateUserDeparture() {
+    if (!_safetyOverrideEnabled) {
+        Serial.println("Safety override not enabled - cannot simulate user departure");
+        return false;
+    }
+
+    // This would need to be implemented in SafetyMonitor
+    // _safetyMonitor->simulateUserDeparture();
+
+    // Direct event simulation
+    _stateMachine->processEvent(StateMachine::EVENT_PRESSURE_OFF);
+    return true;
+}
+
+// Simulate motor stall
+bool WebServer::simulateMotorStall() {
+    if (!_safetyOverrideEnabled) {
+        Serial.println("Safety override not enabled - cannot simulate motor stall");
+        return false;
+    }
+
+    // This would need to be implemented in SafetyMonitor
+    // _safetyMonitor->simulateMotorStall();
+
+    // We'll directly simulate a motor stall by forcibly incrementing
+    // the stall count in SafetyMonitor - this needs to be added to
+    // the SafetyMonitor class
+    // _safetyMonitor->_stallCount = _safetyMonitor->_maxStallCount;
+    // _safetyMonitor->updateMotorStatus(true, 0); // This would trigger the stall detection
+
+    // For now, we'll directly trigger an emergency
+    _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
+    return true;
+}
+
+// Send the safety test page
+void WebServer::sendSafetyTestPage(WiFiClient& client) {
+    sendHttpHeader(client);
+
+    client.println("<!DOCTYPE html>");
+    client.println("<html lang='en'>");
+    client.println("<head>");
+    client.println("<meta charset='UTF-8'>");
+    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+    client.println("<title>Safety Testing - Wheelchair Swing</title>");
+    client.println("<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>");
+    client.println("<style>");
+    client.println("body { font-family: Arial; margin: 20px; background: #f5f5f5; }");
+    client.println(".container { max-width: 1200px; margin: 0 auto; }");
+    client.println(".card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
+    client.println(".safety-override { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 10px 0; }");
+    client.println(".safety-override.active { background: #d4edda; color: #155724; }");
+    client.println(".test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }");
+    client.println(".slider-control { margin: 15px 0; }");
+    client.println(".slider { width: 100%; margin: 10px 0; }");
+    client.println(".button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }");
+    client.println(".button:hover { background: #0056b3; }");
+    client.println(".button.danger { background: #dc3545; }");
+    client.println(".button.warning { background: #ffc107; color: #212529; }");
+    client.println(".button.success { background: #28a745; }");
+    client.println(".response-time { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; }");
+    client.println(".log-container { max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 5px; }");
+    client.println(".log-entry { padding: 8px; margin: 5px 0; border-radius: 5px; }");
+    client.println(".log-info { background: #d1ecf1; color: #0c5460; }");
+    client.println(".log-warning { background: #fff3cd; color: #856404; }");
+    client.println(".log-error { background: #f8d7da; color: #721c24; }");
+    client.println(".log-success { background: #d4edda; color: #155724; }");
+    client.println(".progress-bar { background: #ddd; height: 20px; border-radius: 10px; margin: 20px 0; }");
+    client.println(".progress-fill { background: #4CAF50; height: 100%; border-radius: 10px; width: 0%; transition: width 0.3s; }");
+    client.println(".safety-zone { width: 100%; height: 200px; background: #eee; position: relative; border: 1px solid #ccc; border-radius: 5px; overflow: hidden; margin: 20px 0; }");
+    client.println(".sensor { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; background: #007bff; border-radius: 50%; }");
+    client.println(".sensor.front { left: 10px; }");
+    client.println(".sensor.rear { right: 10px; }");
+    client.println(".swing { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80px; height: 40px; background: #ffc107; border-radius: 5px; }");
+    client.println(".zone { position: absolute; top: 0; height: 100%; opacity: 0.3; }");
+    client.println(".critical-zone { background: #f00; }");
+    client.println(".warning-zone { background: #ffc107; }");
+    client.println("</style>");
+    client.println("</head>");
+    client.println("<body>");
+
+    client.println(generateSafetyTestHTML());
+
+    client.println("<script>");
+    client.println("let safetyTestActive = false;");
+    client.println("let safetyOverrideEnabled = false;");
+    client.println("let overrideTimeoutTimer;");
+    client.println("let responseTimeMeasurements = [];");
+
+    // JavaScript for safety testing functionality
+    client.println("function toggleSafetyOverride(enable) {");
+    client.println("  const endpoint = enable ? '/api/safety-test-override?enable=1' : '/api/safety-test-override?disable=1';");
+    client.println("  fetch(endpoint)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      safetyOverrideEnabled = enable;");
+    client.println("      document.getElementById('safetyOverride').className = 'safety-override ' + (enable ? 'active' : '');");
+    client.println("      document.getElementById('safetyOverride').innerHTML = enable ? ");
+    client.println("        '⚠️ <strong>SAFETY OVERRIDE ENABLED</strong> - Safety systems are bypassed for testing! Auto-disables in <span id=\"overrideTimeout\">300</span> seconds.' : ");
+    client.println("        '✓ Safety systems active - Override disabled';");
+    client.println("      if (enable) {");
+    client.println("        startOverrideCountdown(300);");
+    client.println("        logSafetyEvent('override', 'Safety override enabled for testing', 'WARNING');");
+    client.println("      } else {");
+    client.println("        clearTimeout(overrideTimeoutTimer);");
+    client.println("        logSafetyEvent('override', 'Safety override disabled', 'INFO');");
+    client.println("      }");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function startOverrideCountdown(seconds) {");
+    client.println("  document.getElementById('overrideTimeout').textContent = seconds;");
+    client.println("  if (seconds <= 0) {");
+    client.println("    toggleSafetyOverride(false);");
+    client.println("    return;");
+    client.println("  }");
+    client.println("  overrideTimeoutTimer = setTimeout(() => startOverrideCountdown(seconds - 1), 1000);");
+    client.println("}");
+
+    client.println("function triggerSafetyEvent(event, params = {}) {");
+    client.println("  if (!safetyOverrideEnabled) {");
+    client.println("    alert('Safety override must be enabled for testing!');");
+    client.println("    return;");
+    client.println("  }");
+    client.println("  let endpoint = `/api/safety-test-trigger?event=${event}`;");
+    client.println("  if (event === 'obstacle') {");
+    client.println("    const distance = params.distance || document.getElementById('obstacleDistance').value;");
+    client.println("    const sensor = params.sensor || document.getElementById('obstacleSensor').value;");
+    client.println("    endpoint += `&distance=${distance}&sensor=${sensor}`;");
+    client.println("  }");
+    client.println("  fetch(endpoint)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'success') {");
+    client.println("        logSafetyEvent(event, data.description, 'SUCCESS', data.response_time);");
+    client.println("        document.getElementById('responseTime').textContent = data.response_time + ' ms';");
+    client.println("      } else {");
+    client.println("        logSafetyEvent(event, data.description || 'Event trigger failed', 'FAILED');");
+    client.println("      }");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function runThresholdTest() {");
+    client.println("  if (!safetyOverrideEnabled) {");
+    client.println("    alert('Safety override must be enabled for testing!');");
+    client.println("    return;");
+    client.println("  }");
+    client.println("  const sensor = document.getElementById('thresholdSensor').value;");
+    client.println("  const startVal = document.getElementById('thresholdStart').value;");
+    client.println("  const endVal = document.getElementById('thresholdEnd').value;");
+    client.println("  const steps = document.getElementById('thresholdSteps').value;");
+    client.println("  const endpoint = `/api/safety-test-threshold?sensor=${sensor}&start=${startVal}&end=${endVal}&steps=${steps}`;");
+    client.println("  fetch(endpoint)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'started') {");
+    client.println("        safetyTestActive = true;");
+    client.println("        logSafetyEvent('threshold', `Starting threshold test for ${sensor} from ${startVal}cm to ${endVal}cm`, 'STARTED');");
+    client.println("        document.getElementById('progressBar').style.display = 'block';");
+    client.println("        document.getElementById('progressFill').style.width = '0%';");
+    client.println("        startProgressUpdate();");
+    client.println("      }");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function startProgressUpdate() {");
+    client.println("  let progress = 0;");
+    client.println("  const interval = setInterval(() => {");
+    client.println("    progress += 5;");
+    client.println("    if (progress > 100) {");
+    client.println("      clearInterval(interval);");
+    client.println("      safetyTestActive = false;");
+    client.println("      return;");
+    client.println("    }");
+    client.println("    document.getElementById('progressFill').style.width = progress + '%';");
+    client.println("    // Check test status");
+    client.println("    fetch('/api/safety-test-status')");
+    client.println("      .then(response => response.json())");
+    client.println("      .then(data => {");
+    client.println("        if (!data.active) {");
+    client.println("          clearInterval(interval);");
+    client.println("          document.getElementById('progressFill').style.width = '100%';");
+    client.println("          setTimeout(() => {");
+    client.println("            document.getElementById('progressBar').style.display = 'none';");
+    client.println("          }, 1000);");
+    client.println("          logSafetyEvent('threshold', 'Threshold test completed', 'COMPLETED');");
+    client.println("        }");
+    client.println("      });");
+    client.println("  }, 500);");
+    client.println("}");
+
+    client.println("function measureResponseTime() {");
+    client.println("  if (!safetyOverrideEnabled) {");
+    client.println("    alert('Safety override must be enabled for testing!');");
+    client.println("    return;");
+    client.println("  }");
+    client.println("  const event = document.getElementById('responseEvent').value;");
+    client.println("  const iterations = document.getElementById('responseIterations').value;");
+    client.println("  const endpoint = `/api/safety-test-response-time?event=${event}&iterations=${iterations}`;");
+    client.println("  responseTimeMeasurements = [];");
+    client.println("  fetch(endpoint)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'started') {");
+    client.println("        safetyTestActive = true;");
+    client.println("        logSafetyEvent('response', `Starting response time measurement for ${event} (${iterations} iterations)`, 'STARTED');");
+    client.println("        document.getElementById('progressBar').style.display = 'block';");
+    client.println("        document.getElementById('progressFill').style.width = '0%';");
+    client.println("        startProgressUpdate();");
+    client.println("      }");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function runAutomatedTest() {");
+    client.println("  if (!safetyOverrideEnabled) {");
+    client.println("    alert('Safety override must be enabled for testing!');");
+    client.println("    return;");
+    client.println("  }");
+    client.println("  fetch('/api/safety-test-automated-test')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'started') {");
+    client.println("        safetyTestActive = true;");
+    client.println("        logSafetyEvent('automated', 'Starting automated safety test sequence', 'STARTED');");
+    client.println("        document.getElementById('progressBar').style.display = 'block';");
+    client.println("        document.getElementById('progressFill').style.width = '0%';");
+    client.println("        startProgressUpdate();");
+    client.println("      }");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function updateSafetyZones() {");
+    client.println("  const warningDistance = document.getElementById('thresholdStart').value;");
+    client.println("  const criticalDistance = document.getElementById('thresholdEnd').value;");
+    client.println("  const maxDistance = 100; // Maximum display distance in cm");
+    client.println("  const zoneWidth = document.querySelector('.safety-zone').offsetWidth;");
+    client.println("  ");
+    client.println("  // Calculate pixel positions (scale from cm to pixels)");
+    client.println("  const warningPixels = (warningDistance / maxDistance) * (zoneWidth / 2);");
+    client.println("  const criticalPixels = (criticalDistance / maxDistance) * (zoneWidth / 2);");
+    client.println("  ");
+    client.println("  // Update front zones");
+    client.println("  document.querySelector('.front-warning').style.left = '0';");
+    client.println("  document.querySelector('.front-warning').style.width = warningPixels + 'px';");
+    client.println("  document.querySelector('.front-critical').style.left = '0';");
+    client.println("  document.querySelector('.front-critical').style.width = criticalPixels + 'px';");
+    client.println("  ");
+    client.println("  // Update rear zones");
+    client.println("  document.querySelector('.rear-warning').style.right = '0';");
+    client.println("  document.querySelector('.rear-warning').style.width = warningPixels + 'px';");
+    client.println("  document.querySelector('.rear-critical').style.right = '0';");
+    client.println("  document.querySelector('.rear-critical').style.width = criticalPixels + 'px';");
+    client.println("}");
+
+    client.println("function logSafetyEvent(type, description, status, responseTime = '') {");
+    client.println("  const logContainer = document.getElementById('logContainer');");
+    client.println("  const timestamp = new Date().toLocaleTimeString();");
+    client.println("  ");
+    client.println("  let logClass = 'log-info';");
+    client.println("  if (status === 'WARNING' || status === 'STARTED') logClass = 'log-warning';");
+    client.println("  else if (status === 'ERROR' || status === 'FAILED') logClass = 'log-error';");
+    client.println("  else if (status === 'SUCCESS' || status === 'COMPLETED') logClass = 'log-success';");
+    client.println("  ");
+    client.println("  const logEntry = document.createElement('div');");
+    client.println("  logEntry.className = `log-entry ${logClass}`;");
+    client.println("  logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${description} - <em>${status}</em> ${responseTime ? '(' + responseTime + 'ms)' : ''}`;");
+    client.println("  ");
+    client.println("  logContainer.insertBefore(logEntry, logContainer.firstChild);");
+    client.println("  ");
+    client.println("  // Limit to 100 log entries");
+    client.println("  if (logContainer.children.length > 100) {");
+    client.println("    logContainer.removeChild(logContainer.lastChild);");
+    client.println("  }");
+    client.println("}");
+
+    client.println("function resetSafetyLogs() {");
+    client.println("  if (confirm('Are you sure you want to clear all safety logs?')) {");
+    client.println("    fetch('/api/safety-test-reset-logs')");
+    client.println("      .then(response => response.json())");
+    client.println("      .then(data => {");
+    client.println("        document.getElementById('logContainer').innerHTML = '';");
+    client.println("        logSafetyEvent('system', 'Safety logs cleared', 'INFO');");
+    client.println("      });");
+    client.println("  }");
+    client.println("}");
+
+    client.println("// Check safety status on load");
+    client.println("document.addEventListener('DOMContentLoaded', function() {");
+    client.println("  fetch('/api/safety-test-status')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      safetyOverrideEnabled = data.override_enabled;");
+    client.println("      document.getElementById('safetyOverride').className = 'safety-override ' + (safetyOverrideEnabled ? 'active' : '');");
+    client.println("      if (safetyOverrideEnabled) {");
+    client.println("        document.getElementById('safetyOverride').innerHTML = ");
+    client.println("          '⚠️ <strong>SAFETY OVERRIDE ENABLED</strong> - Safety systems are bypassed for testing! Auto-disables in <span id=\"overrideTimeout\">' + data.override_timeout + '</span> seconds.';");
+    client.println("        startOverrideCountdown(data.override_timeout);");
+    client.println("      }");
+    client.println("    });");
+    client.println("  ");
+    client.println("  // Load existing logs");
+    client.println("  fetch('/api/safety-test-logs')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.logs && data.logs.length > 0) {");
+    client.println("        data.logs.forEach(log => {");
+    client.println("          logSafetyEvent(log.event, log.description, log.status, log.response_time);");
+    client.println("        });");
+    client.println("      }");
+    client.println("    });");
+    client.println("  ");
+    client.println("  // Initialize safety zones");
+    client.println("  updateSafetyZones();");
+    client.println("});");
+
+    client.println("</script>");
+    client.println("</body></html>");
+}
+
+String WebServer::generateSafetyTestHTML() {
+    String html = "<div class='container'>";
+    html += "<h1>Safety System Testing</h1>";
+    html += "<p><a href='/'>← Back to Home</a></p>";
+
+    // Safety Override Control
+    html += "<div id='safetyOverride' class='safety-override'>";
+    html += "✓ Safety systems active - Override disabled";
+    html += "</div>";
+
+    html += "<div class='card'>";
+    html += "<h2>Safety Override Control</h2>";
+    html += "<p>Warning: Enabling safety override will bypass normal safety protections for testing purposes.</p>";
+    html += "<button class='button warning' onclick='toggleSafetyOverride(true)'>Enable Safety Override</button>";
+    html += "<button class='button' onclick='toggleSafetyOverride(false)'>Disable Safety Override</button>";
+    html += "</div>";
+
+    // Safety Visualization
+    html += "<div class='card'>";
+    html += "<h2>Safety Zone Visualization</h2>";
+    html += "<div class='safety-zone'>";
+    html += "<div class='zone warning-zone front-warning'></div>";
+    html += "<div class='zone critical-zone front-critical'></div>";
+    html += "<div class='sensor front'></div>";
+    html += "<div class='swing'></div>";
+    html += "<div class='sensor rear'></div>";
+    html += "<div class='zone warning-zone rear-warning'></div>";
+    html += "<div class='zone critical-zone rear-critical'></div>";
+    html += "</div>";
+    html += "<p>Visual representation of safety thresholds: red = critical, yellow = warning</p>";
+    html += "</div>";
+
+    // Progress bar (hidden by default)
+    html += "<div id='progressBar' class='progress-bar' style='display: none;'>";
+    html += "<div id='progressFill' class='progress-fill'></div>";
+    html += "</div>";
+
+    // Event Trigger Section
+    html += "<div class='card'>";
+    html += "<h2>Manual Safety Event Triggers</h2>";
+    html += "<div class='test-grid'>";
+
+    // Obstacle Detection Trigger
+    html += "<div>";
+    html += "<h3>Obstacle Detection</h3>";
+    html += "<div class='slider-control'>";
+    html += "<label>Distance (cm): <span id='obstacleDistanceDisplay'>30</span></label>";
+    html += "<input type='range' id='obstacleDistance' class='slider' min='5' max='100' value='30' oninput='document.getElementById(\"obstacleDistanceDisplay\").textContent=this.value'>";
+    html += "</div>";
+    html += "<div class='slider-control'>";
+    html += "<label>Sensor:</label>";
+    html += "<select id='obstacleSensor'>";
+    html += "<option value='front'>Front</option>";
+    html += "<option value='rear'>Rear</option>";
+    html += "</select>";
+    html += "</div>";
+    html += "<button class='button danger' onclick='triggerSafetyEvent(\"obstacle\")'>Simulate Obstacle</button>";
+    html += "</div>";
+
+    // User Departure Trigger
+    html += "<div>";
+    html += "<h3>User Presence</h3>";
+    html += "<p>Simulate user leaving the swing while in operation.</p>";
+    html += "<button class='button danger' onclick='triggerSafetyEvent(\"user\")'>Simulate User Departure</button>";
+    html += "</div>";
+
+    html += "</div>";
+
+    // Second row
+    html += "<div class='test-grid'>";
+
+    // Motor Stall Trigger
+    html += "<div>";
+    html += "<h3>Motor Stall</h3>";
+    html += "<p>Simulate motor stall condition during operation.</p>";
+    html += "<button class='button danger' onclick='triggerSafetyEvent(\"stall\")'>Simulate Motor Stall</button>";
+    html += "</div>";
+
+    // Response Time Display
+    html += "<div>";
+    html += "<h3>Response Time</h3>";
+    html += "<div class='response-time' id='responseTime'>-- ms</div>";
+    html += "<p>Time from trigger to emergency stop</p>";
+    html += "</div>";
+
+    html += "</div>";
+    html += "</div>";
+
+    // Threshold Testing
+    html += "<div class='card'>";
+    html += "<h2>Threshold Testing</h2>";
+    html += "<p>Gradually decrease distance to determine precise triggering thresholds.</p>";
+
+    html += "<div class='slider-control'>";
+    html += "<label>Sensor:</label>";
+    html += "<select id='thresholdSensor'>";
+    html += "<option value='front'>Front</option>";
+    html += "<option value='rear'>Rear</option>";
+    html += "</select>";
+    html += "</div>";
+
+    html += "<div class='slider-control'>";
+    html += "<label>Start Distance (cm): <span id='thresholdStartDisplay'>100</span></label>";
+    html += "<input type='range' id='thresholdStart' class='slider' min='50' max='100' value='100' oninput='document.getElementById(\"thresholdStartDisplay\").textContent=this.value; updateSafetyZones();'>";
+    html += "</div>";
+
+    html += "<div class='slider-control'>";
+    html += "<label>End Distance (cm): <span id='thresholdEndDisplay'>5</span></label>";
+    html += "<input type='range' id='thresholdEnd' class='slider' min='5' max='30' value='5' oninput='document.getElementById(\"thresholdEndDisplay\").textContent=this.value; updateSafetyZones();'>";
+    html += "</div>";
+
+    html += "<div class='slider-control'>";
+    html += "<label>Steps: <span id='thresholdStepsDisplay'>20</span></label>";
+    html += "<input type='range' id='thresholdSteps' class='slider' min='5' max='50' value='20' oninput='document.getElementById(\"thresholdStepsDisplay\").textContent=this.value'>";
+    html += "</div>";
+
+    html += "<button class='button warning' onclick='runThresholdTest()'>Run Threshold Test</button>";
+    html += "</div>";
+
+    // Response Time Testing
+    html += "<div class='card'>";
+    html += "<h2>Response Time Testing</h2>";
+    html += "<p>Measure how quickly the system responds to safety events.</p>";
+
+    html += "<div class='slider-control'>";
+    html += "<label>Event Type:</label>";
+    html += "<select id='responseEvent'>";
+    html += "<option value='obstacle'>Obstacle Detection</option>";
+    html += "<option value='user'>User Departure</option>";
+    html += "<option value='stall'>Motor Stall</option>";
+    html += "</select>";
+    html += "</div>";
+
+    html += "<div class='slider-control'>";
+    html += "<label>Iterations: <span id='responseIterationsDisplay'>5</span></label>";
+    html += "<input type='range' id='responseIterations' class='slider' min='1' max='10' value='5' oninput='document.getElementById(\"responseIterationsDisplay\").textContent=this.value'>";
+    html += "</div>";
+
+    html += "<button class='button warning' onclick='measureResponseTime()'>Measure Response Time</button>";
+    html += "</div>";
+
+    // Automated Test Sequence
+    html += "<div class='card'>";
+    html += "<h2>Automated Test Sequence</h2>";
+    html += "<p>Run a comprehensive suite of safety tests automatically.</p>";
+    html += "<button class='button success' onclick='runAutomatedTest()'>Run Automated Test Sequence</button>";
+    html += "</div>";
+
+    // Safety Event Log
+    html += "<div class='card'>";
+    html += "<h2>Safety Event Log</h2>";
+    html += "<div class='log-container' id='logContainer'>";
+    html += "<!-- Log entries will be added here via JavaScript -->";
+    html += "</div>";
+    html += "<button class='button' onclick='resetSafetyLogs()'>Clear Log</button>";
+    html += "</div>";
+
+    html += "</div>";
+    return html;
 }
 
 void WebServer::handleMotorTestAPI(WiFiClient& client, String command) {

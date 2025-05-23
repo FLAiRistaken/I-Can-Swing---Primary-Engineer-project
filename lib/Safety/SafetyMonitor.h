@@ -64,6 +64,16 @@ public:
     int getPressureThreshold();
     float getPressureBaseline();
 
+    // Test mode functions
+    void simulateObstacleDetection(String sensor, float distance);
+    void simulateUserDeparture();
+    void simulateMotorStall();
+    void setTemporaryThreshold(String sensor, float value);
+    void resetThresholds();
+    bool isInTestMode() const;
+    void enterTestMode();
+    void exitTestMode();
+
 private:
     StateMachine* _stateMachine;
     UltrasonicSensor* _frontSensor;
@@ -137,4 +147,10 @@ private:
     float _ultrasonic2Baseline;
     int _pressureThreshold;
     float _pressureBaseline;
+
+    // Safety test web interface
+    bool _testModeEnabled;
+    float _simulatedFrontDistance;
+    float _simulatedRearDistance;
+    bool _simulatedUserPresent;
 };

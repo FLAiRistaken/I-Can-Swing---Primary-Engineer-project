@@ -114,10 +114,25 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
 }
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
-    // Get distance readings
-    _frontDistance = _frontSensor->measureDistance();
-    delay(10);
-    _rearDistance = _rearSensor->measureDistance();
+    // Use simulated values if in test mode
+    if (_testModeEnabled) {
+        if (_simulatedFrontDistance > 0) {
+            _frontDistance = _simulatedFrontDistance;
+        } else {
+            _frontDistance = _frontSensor->measureDistance();
+        }
+
+        if (_simulatedRearDistance > 0) {
+            _rearDistance = _simulatedRearDistance;
+        } else {
+            _rearDistance = _rearSensor->measureDistance();
+        }
+    } else {
+        // Normal operation
+        _frontDistance = _frontSensor->measureDistance();
+        delay(10);
+        _rearDistance = _rearSensor->measureDistance();
+    }
 
     // Store previous readings for phase detection
     static float lastFrontDistance = _frontDistance;
@@ -238,7 +253,11 @@ float SafetyMonitor::getEffectiveCriticalDistance() const {
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkUserPresence() {
     // Check if user is present in the swing
-    _userPresent = _pressureSensor->isOccupied();
+    if (_testModeEnabled) {
+        _userPresent = _simulatedUserPresent;
+    } else {
+        _userPresent = _pressureSensor->isOccupied();
+    }
 
     // If swinging and user suddenly disappears, trigger emergency
     if (!_userPresent &&
@@ -470,6 +489,89 @@ bool SafetyMonitor::updateSensorThresholds(String sensor, float minVal, float ma
         return true;
     }
     return false;
+}
+
+// Test mode methods implementation
+
+void SafetyMonitor::simulateObstacleDetection(String sensor, float distance) {
+    if (!_testModeEnabled) {
+        Serial.println("SafetyMonitor: Test mode not enabled - cannot simulate obstacle");
+        return;
+    }
+
+    if (sensor == "front") {
+        _simulatedFrontDistance = distance;
+        Serial.print("SafetyMonitor: Simulating front obstacle at ");
+        Serial.print(distance);
+        Serial.println(" cm");
+    } else if (sensor == "rear") {
+        _simulatedRearDistance = distance;
+        Serial.print("SafetyMonitor: Simulating rear obstacle at ");
+        Serial.print(distance);
+        Serial.println(" cm");
+    }
+}
+
+void SafetyMonitor::simulateUserDeparture() {
+    if (!_testModeEnabled) {
+        Serial.println("SafetyMonitor: Test mode not enabled - cannot simulate user departure");
+        return;
+    }
+
+    _simulatedUserPresent = false;
+    Serial.println("SafetyMonitor: Simulating user departure");
+}
+
+void SafetyMonitor::simulateMotorStall() {
+    if (!_testModeEnabled) {
+        Serial.println("SafetyMonitor: Test mode not enabled - cannot simulate motor stall");
+        return;
+    }
+
+    _stallCount = _maxStallCount;
+    Serial.println("SafetyMonitor: Simulating motor stall condition");
+}
+
+void SafetyMonitor::setTemporaryThreshold(String sensor, float value) {
+    if (!_testModeEnabled) {
+        Serial.println("SafetyMonitor: Test mode not enabled - cannot set temporary threshold");
+        return;
+    }
+
+    if (sensor == "front") {
+        _frontThreshold = value;
+        Serial.print("SafetyMonitor: Set temporary front threshold to ");
+        Serial.print(value);
+        Serial.println(" cm");
+    } else if (sensor == "rear") {
+        _rearThreshold = value;
+        Serial.print("SafetyMonitor: Set temporary rear threshold to ");
+        Serial.print(value);
+        Serial.println(" cm");
+    }
+}
+
+void SafetyMonitor::resetThresholds() {
+    _frontThreshold = OBSTACLE_DISTANCE_CM;
+    _rearThreshold = OBSTACLE_DISTANCE_CM;
+    Serial.println("SafetyMonitor: Reset thresholds to default values");
+}
+
+bool SafetyMonitor::isInTestMode() const {
+    return _testModeEnabled;
+}
+
+void SafetyMonitor::enterTestMode() {
+    _testModeEnabled = true;
+    _simulatedFrontDistance = 0.0f;
+    _simulatedRearDistance = 0.0f;
+    _simulatedUserPresent = true;
+    Serial.println("SafetyMonitor: Entered test mode");
+}
+
+void SafetyMonitor::exitTestMode() {
+    _testModeEnabled = false;
+    Serial.println("SafetyMonitor: Exited test mode");
 }
 
 // Getter methods
