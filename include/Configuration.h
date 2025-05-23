@@ -70,3 +70,7 @@ constexpr int PRESSURE_THRESHOLD    = 500; // Analog threshold for occupancy
 constexpr int OBSTACLE_DISTANCE_CM  = 30;  // Default ultrasonic warning threshold
 constexpr int CRITICAL_DISTANCE_CM  = 10;  // Emergency stop threshold
 
+// ---- WiFi Credentials ----
+constexpr char WIFI_SSID[] = "JahPhone";
+constexpr char WIFI_PASSWORD[] = "password";
+

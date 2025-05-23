@@ -11,6 +11,8 @@
 #include "ActuatorDriver.h"
 #include "SafetyMonitor.h"
 #include "VoiceRecognition.h"
+#include "WiFiManager.h"
+#include "WebServer.h"
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
@@ -29,6 +31,9 @@ VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 
 // Create SafetyMonitor instance
 SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
+
+WiFiManager wifiManager;
+WebServer webServer(&stateMachine, &safetyMonitor);
 
 // UsS Distance values
 float frontDistance = 0.0;
@@ -280,6 +285,14 @@ void setup() {
     Serial.println("Initialising voiceModule");
     voiceModule.begin();
     Serial.println("voiceModule initialised...");
+    Serial.println("Initialising WiFi...");
+    if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
+        Serial.println("WiFi connected successfully");
+        webServer.begin();
+        Serial.println("Web server started");
+    } else {
+        Serial.println("WiFi connection failed - continuing without web interface");
+    }
 
     // Set initial stepper directions (opposite for swing motion)
     stepperLeft.setDirection(true);   // Clockwise
@@ -324,6 +337,10 @@ void loop() {
 
     // Update motor control
     updateMotors();
+
+    if (wifiManager.isConnected()) {
+        webServer.handleClient();
+    }
 
     // Update display at regular intervals
     if (currentMillis - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {
