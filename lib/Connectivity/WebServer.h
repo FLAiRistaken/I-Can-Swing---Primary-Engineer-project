@@ -11,6 +11,7 @@
 class WebServer {
 public:
     WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor);
+    void exportConfiguration(WiFiClient& client);
 
     void setStepperDrivers(StepperDriver* leftStepper, StepperDriver* rightStepper);
 
@@ -119,7 +120,6 @@ private:
     void getCalibrationData(WiFiClient& client);
 
     // Motor testing methods
-    void handleMotorTestAPI(WiFiClient& client, String command);
     void testMotorLeft(WiFiClient& client, String params);
     void testMotorRight(WiFiClient& client, String params);
     void startRampTest(WiFiClient& client, String params);
@@ -128,7 +128,6 @@ private:
     void testMotorSync(WiFiClient& client);
     void stopMotorTest(WiFiClient& client);
     void getMotorTestStatus(WiFiClient& client);
-    void sendMotorTestPage(WiFiClient& client);
 
     // Safety interlocks
     bool checkMotorTestSafety();

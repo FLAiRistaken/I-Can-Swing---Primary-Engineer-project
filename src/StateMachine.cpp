@@ -4,7 +4,16 @@
 #include "BuzzerDriver.h"
 #include "ActuatorDriver.h"
 
-StateMachine::StateMachine() : _currentState(STATE_IDLE), _currentSpeed(SPEED_OFF), _isUserPresent(false), _doorActuator(nullptr), _buzzer(nullptr) {}
+StateMachine::StateMachine()
+    : _currentState(STATE_IDLE),
+      _currentSpeed(SPEED_OFF),
+      _isUserPresent(false),
+      _doorActuator(nullptr),
+      _buzzer(nullptr),
+      _stateEntryTime(0),
+      _doorTimeoutMs(10000),
+      _timeoutEnabled(false)
+{}
 
 void StateMachine::begin() {
     _currentState = STATE_IDLE;

@@ -7,6 +7,8 @@
 #include "UltrasonicSensor.h"
 #include "PressureSensor.h"
 
+class RuntimeConfig;
+
 struct CalibrationData {
     int readingCount;
     float minValue;
@@ -49,6 +51,10 @@ public:
     const char* getStatusString() const;
     SafetyStatus getCurrentStatus() const;
 
+    // Dynamic thresolds
+    float getEffectiveWarningDistance() const;
+    float getEffectiveCriticalDistance() const;
+
     // Calibration
     void enterCalibrationMode(String sensorType);
     void exitCalibrationMode();
@@ -68,8 +74,6 @@ public:
     void simulateObstacleDetection(String sensor, float distance);
     void simulateUserDeparture();
     void simulateMotorStall();
-    void setTemporaryThreshold(String sensor, float value);
-    void resetThresholds();
     bool isInTestMode() const;
     void enterTestMode();
     void exitTestMode();
@@ -103,10 +107,6 @@ private:
     bool _watchdogEnabled;
     const unsigned long WATCHDOG_TIMEOUT_MS = 5000; // 5 second timeout
 
-    // Safety thresholds (using constants from Configuration.h)
-    const float CRITICAL_DISTANCE_CM = 10.0f;  // Emergency threshold
-    const float WARNING_DISTANCE_CM = OBSTACLE_DISTANCE_CM;  // Warning threshold
-
     // Handle safety status changes
     void handleSafetyStatus(SafetyStatus newStatus);
     bool detectRapidObstacleChanges();
@@ -125,10 +125,6 @@ private:
 
     // For expected ground detection filtering
     bool isReadingExpectedGround(float distance, float previosuDistance);
-
-    // Dynamic thresolds
-    float getEffectiveWarningDistance() const;
-    float getEffectiveCriticalDistance() const;
 
     // Calibration
     bool _calibrationMode;

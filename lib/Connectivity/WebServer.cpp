@@ -1,5 +1,6 @@
 // lib/Connectivity/WebServer.cpp
 #include "WebServer.h"
+#include "RuntimeConfig.h"
 
 WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
     : _server(80), _stateMachine(stateMachine), _safetyMonitor(safetyMonitor),
@@ -69,6 +70,13 @@ void WebServer::handleClient() {
             int apiEnd = request.indexOf(" ", apiStart);
             String command = request.substring(apiStart, apiEnd);
             handleCalibrationAPI(client, command);
+        } else if (request.indexOf("GET /api/config-update") >= 0) {
+            int paramsStart = request.indexOf("?") + 1;
+            int paramsEnd = request.indexOf(" HTTP", paramsStart);
+            String params = request.substring(paramsStart, paramsEnd);
+            handleConfigUpdate(client, params);
+        } else if (request.indexOf("GET /api/config-export") >= 0) {
+            exportConfiguration(client);
         } else if (request.indexOf("GET /api/") >= 0) {
             int apiStart = request.indexOf("/api/") + 5;
             int apiEnd = request.indexOf(" ", apiStart);
@@ -227,11 +235,9 @@ void WebServer::runThresholdTest(WiFiClient& client, String params) {
     for (int i = 0; i <= steps; i++) {
         float currentThreshold = startVal - (stepSize * i);
 
-        // Set the threshold in SafetyMonitor temporarily
-        if (sensor == "front" || sensor == "rear") {
-            // This would need to be implemented in SafetyMonitor
-            // _safetyMonitor->setTemporaryThreshold(sensor, currentThreshold);
-        }
+        // Set the threshold in RuntimeConfig temporarily for testing
+       RuntimeConfig& config = RuntimeConfig::getInstance();
+       config.setWarningDistance(currentThreshold);
 
         // Simulate obstacle at current threshold
         bool detected = simulateObstacle(currentThreshold, sensor);
@@ -250,8 +256,12 @@ void WebServer::runThresholdTest(WiFiClient& client, String params) {
         }
     }
 
-    // Reset any temporary thresholds
-    // _safetyMonitor->resetThresholds();
+    // Reset thresholds to defaults after test
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    config.setWarningDistance(OBSTACLE_DISTANCE_CM);
+    config.setCriticalDistance(CRITICAL_DISTANCE_CM);
+    config.save(); // Save the reset values
+
 
     _safetyTestActive = false;
     _currentSafetyTest = "";
@@ -2110,6 +2120,54 @@ void WebServer::handleControlCommand(WiFiClient& client, String command) {
     client.println("Location: /");
     client.println("Connection: close");
     client.println();
+}
+
+void WebServer::handleConfigUpdate(WiFiClient& client, String params) {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+    // Parse: setting=frontWarningDistance&value=35.0
+    int settingStart = params.indexOf("setting=") + 8;
+    int settingEnd = params.indexOf("&", settingStart);
+    String setting = params.substring(settingStart, settingEnd);
+
+    int valueStart = params.indexOf("value=") + 6;
+    String value = params.substring(valueStart);
+
+    bool success = false;
+
+    if (setting == "frontWarningDistance") {
+        success = config.setWarningDistance(value.toFloat());
+    } else if (setting == "frontCriticalDistance") {
+        success = config.setCriticalDistance(value.toFloat());
+    } else if (setting == "pressureThreshold") {
+        success = config.setPressureThreshold(value.toInt());
+    } else if (setting == "speedLow") {
+        success = config.setSpeedLow(value.toInt());
+    } else if (setting == "speedMedium") {
+        success = config.setSpeedMedium(value.toInt());
+    } else if (setting == "speedHigh") {
+        success = config.setSpeedHigh(value.toInt());
+    } else if (setting == "audioFeedback") {
+        config.setAudioFeedbackEnabled(value == "true");
+        success = true;
+    } else if (setting == "doorTimeout") {
+        success = config.setDoorTimeoutMs(value.toInt());
+    }
+
+    if (success) {
+        config.save(); // Save immediately
+        sendJsonResponse(client, "{\"status\":\"success\",\"message\":\"Setting updated and saved\"}");
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Invalid setting or value out of range\"}");
+    }
+}
+
+void WebServer::exportConfiguration(WiFiClient& client) {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    String jsonConfig = config.exportToJson();
+
+    sendHttpHeader(client, "application/json");
+    client.println(jsonConfig);
 }
 
 String WebServer::getSystemStatus() {

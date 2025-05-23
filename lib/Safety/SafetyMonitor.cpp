@@ -1,5 +1,11 @@
 // lib/Safety/SafetyMonitor.cpp
 #include "SafetyMonitor.h"
+#include <RuntimeConfig.h>
+
+void onConfigChange(const char* key) {
+    Serial.print("SafetyMonitor: Config changed - ");
+    Serial.println(key);
+}
 
 SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
                            UltrasonicSensor* frontSensor,
@@ -28,6 +34,10 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
 
 void SafetyMonitor::begin() {
     Serial.println("SafetyMonitor: Initialized");
+
+    // Register callback for config changes
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    config.registerCallback(onConfigChange);
 
     // Initialize watchdog timer
     _lastWatchdogReset = millis();
@@ -81,9 +91,12 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
     // Record the current obstacle detection
     unsigned long currentTime = millis();
 
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+
     // Check if distance crosses the warning threshold
-    bool obstacleDetected = (_frontDistance > 0 && _frontDistance < WARNING_DISTANCE_CM) ||
-                            (_rearDistance > 0 && _rearDistance < WARNING_DISTANCE_CM);
+    bool obstacleDetected = (_frontDistance > 0 && _frontDistance < config.getFrontWarningDistance()) ||
+                            (_rearDistance > 0 && _rearDistance < config.getRearWarningDistance());
 
     // Only record changes in obstacle status
     static bool lastObstacleStatus = false;
@@ -234,21 +247,25 @@ bool SafetyMonitor::isReadingExpectedGround(float distance, float previousDistan
 }
 
 float SafetyMonitor::getEffectiveWarningDistance() const {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    float baseDistance = config.getFrontWarningDistance();
     // When swinging, use a smaller threshold to account for ground detection
     if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
         // Reduce warning threshold by 30% during swinging
-        return WARNING_DISTANCE_CM * 0.7f;
+        return baseDistance * 0.7f;
     }
-    return WARNING_DISTANCE_CM;
+    return baseDistance;
 }
 
 float SafetyMonitor::getEffectiveCriticalDistance() const {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    float baseDistance = config.getFrontCriticalDistance();
     // Critical distance is less affected but still adjustable
     if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
         // Reduce critical threshold by 10% during swinging
-        return CRITICAL_DISTANCE_CM * 0.9f;
+        return baseDistance * 0.9f;
     }
-    return CRITICAL_DISTANCE_CM;
+    return baseDistance;
 }
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkUserPresence() {
@@ -530,31 +547,6 @@ void SafetyMonitor::simulateMotorStall() {
 
     _stallCount = _maxStallCount;
     Serial.println("SafetyMonitor: Simulating motor stall condition");
-}
-
-void SafetyMonitor::setTemporaryThreshold(String sensor, float value) {
-    if (!_testModeEnabled) {
-        Serial.println("SafetyMonitor: Test mode not enabled - cannot set temporary threshold");
-        return;
-    }
-
-    if (sensor == "front") {
-        _frontThreshold = value;
-        Serial.print("SafetyMonitor: Set temporary front threshold to ");
-        Serial.print(value);
-        Serial.println(" cm");
-    } else if (sensor == "rear") {
-        _rearThreshold = value;
-        Serial.print("SafetyMonitor: Set temporary rear threshold to ");
-        Serial.print(value);
-        Serial.println(" cm");
-    }
-}
-
-void SafetyMonitor::resetThresholds() {
-    _frontThreshold = OBSTACLE_DISTANCE_CM;
-    _rearThreshold = OBSTACLE_DISTANCE_CM;
-    Serial.println("SafetyMonitor: Reset thresholds to default values");
 }
 
 bool SafetyMonitor::isInTestMode() const {

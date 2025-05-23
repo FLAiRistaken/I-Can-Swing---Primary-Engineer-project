@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include "Configuration.h"
+#include "RuntimeConfig.h"
 #include "BuzzerDriver.h"
 #include "DisplayDriver.h"
 #include "ButtonManager.h"
@@ -155,12 +156,13 @@ void checkUltrasonicSensors() {
     rearDistance = ultrasonicRear.measureDistance();
 
     // Define thresholds
-    const int CRITICAL_DISTANCE_CM = 10; // Very close - emergency
-    const int WARNING_DISTANCE_CM = OBSTACLE_DISTANCE_CM; // Normal obstacle - error
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    float criticalDistance = config.getFrontCriticalDistance(); // Very close - emergency
+    float warningDistance = config.getFrontWarningDistance(); // Normal obstacle - error
 
     // Check for critical proximity (EMERGENCY condition)
-    if ((frontDistance > 0 && frontDistance < CRITICAL_DISTANCE_CM) ||
-        (rearDistance > 0 && rearDistance < CRITICAL_DISTANCE_CM)) {
+    if ((frontDistance > 0 && frontDistance < criticalDistance) ||
+        (rearDistance > 0 && rearDistance < criticalDistance)) {
         // Immediate danger detected - trigger emergency
         stateMachine.processEvent(StateMachine::EVENT_EMERGENCY);
         buzzer.playTone(2000, 500); // Urgent alert sound
@@ -169,15 +171,15 @@ void checkUltrasonicSensors() {
     }
 
     // Check for obstacles (ERROR condition)
-    if ((frontDistance > CRITICAL_DISTANCE_CM && frontDistance < WARNING_DISTANCE_CM) ||
-        (rearDistance > CRITICAL_DISTANCE_CM && rearDistance < WARNING_DISTANCE_CM)) {
+    if ((frontDistance > criticalDistance && frontDistance < warningDistance) ||
+        (rearDistance > criticalDistance && rearDistance < warningDistance)) {
         // Obstacle detected - trigger error only if not already in error/emergency
         if (stateMachine.getCurrentState() != StateMachine::STATE_ERROR &&
             stateMachine.getCurrentState() != StateMachine::STATE_EMERGENCY) {
             stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
             buzzer.beep(1500, 100); // Alert sound
             Serial.print("WARNING: Object detected at ");
-            Serial.print((frontDistance < WARNING_DISTANCE_CM) ? frontDistance : rearDistance);
+            Serial.print((frontDistance < warningDistance) ? frontDistance : rearDistance);
             Serial.println(" cm");
         }
     }
@@ -186,17 +188,18 @@ void checkUltrasonicSensors() {
 void updateMotors() {
     // Set motor speeds based on current state and speed setting
     if (stateMachine.getCurrentState() == StateMachine::STATE_SWINGING) {
+        RuntimeConfig& config = RuntimeConfig::getInstance();
         uint16_t speedValue = 0;
 
         switch (stateMachine.getCurrentSpeed()) {
             case StateMachine::SPEED_LOW:
-                speedValue = SPEED_LOW;
+                speedValue = config.getSpeedLow();
                 break;
             case StateMachine::SPEED_MEDIUM:
-                speedValue = SPEED_MEDIUM;
+                speedValue = config.getSpeedMedium();
                 break;
             case StateMachine::SPEED_HIGH:
-                speedValue = SPEED_HIGH;
+                speedValue = config.getSpeedHigh();
                 break;
             default:
                 speedValue = 0;
@@ -245,6 +248,11 @@ void setup() {
     Serial.println("Swing starting...");
 
     Wire.setClock(100000);
+
+    Serial.println("Initialising RuntimeConfig...");
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    config.begin();
+    Serial.println("RuntimeConfig initialised");
 
     // Initialise components
     Serial.println("Initialising buzzer...");
@@ -300,7 +308,7 @@ void setup() {
 
     stateMachine.setBuzzer(&buzzer);
     stateMachine.setDoorActuator(&doorActuator);
-    stateMachine.setDoorTimeout(5000);
+    stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
 
     // Startup beep
     buzzer.beep(1000, 100);
@@ -317,6 +325,12 @@ void loop() {
     //handleButtons();
 
     Serial.println("Loop...");
+
+    static unsigned long lastConfigCheck = 0;
+    if (millis() - lastConfigCheck > 30000) { // Every 30 seconds
+        RuntimeConfig::getInstance().save();
+        lastConfigCheck = millis();
+    }
 
     // Timeout checking
     stateMachine.update();
