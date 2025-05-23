@@ -143,3 +143,127 @@ void StepperDriver::setPinsLow() {
     digitalWrite(_in3Pin, LOW);
     digitalWrite(_in4Pin, LOW);
 }
+
+void StepperDriver::enterTestMode() {
+    _testMode = true;
+    _currentPosition = 0;
+    Serial.println("StepperDriver: Entered test mode");
+}
+
+void StepperDriver::exitTestMode() {
+    _testMode = false;
+    stop();
+    Serial.println("StepperDriver: Exited test mode");
+}
+
+void StepperDriver::testIndividual(int speed, int steps, bool clockwise) {
+    if (!_testMode || !_enabled) {
+        Serial.println("StepperDriver: Test mode not active or motor disabled");
+        return;
+    }
+
+    setSpeed(speed);
+    setDirection(clockwise);
+
+    int actualSteps = clockwise ? steps : -steps;
+    step(actualSteps);
+    _currentPosition += actualSteps;
+
+    Serial.print("StepperDriver: Individual test - Speed: ");
+    Serial.print(speed);
+    Serial.print(" RPM, Steps: ");
+    Serial.print(steps);
+    Serial.print(", Direction: ");
+    Serial.print(clockwise ? "CW" : "CCW");
+    Serial.print(", New position: ");
+    Serial.println(_currentPosition);
+}
+
+void StepperDriver::startRampTest(int startSpeed, int endSpeed, unsigned long duration) {
+    if (!_testMode || !_enabled) {
+        Serial.println("StepperDriver: Test mode not active or motor disabled");
+        return;
+    }
+
+    _rampStartTime = millis();
+    _rampCurrentSpeed = startSpeed;
+    _rampTargetSpeed = endSpeed;
+
+    setSpeed(startSpeed);
+    startContinuous();
+
+    Serial.print("StepperDriver: Ramp test started - ");
+    Serial.print(startSpeed);
+    Serial.print(" to ");
+    Serial.print(endSpeed);
+    Serial.print(" RPM over ");
+    Serial.print(duration);
+    Serial.println(" ms");
+}
+
+void StepperDriver::updateRampTest() {
+    if (!_testMode || !isRunning()) {
+        return;
+    }
+
+    unsigned long elapsed = millis() - _rampStartTime;
+    unsigned long rampDuration = 10000; // 10 seconds for full ramp
+
+    if (elapsed < rampDuration) {
+        // Calculate current speed based on elapsed time
+        float progress = (float)elapsed / rampDuration;
+        int newSpeed = _rampCurrentSpeed + ((_rampTargetSpeed - _rampCurrentSpeed) * progress);
+
+        if (newSpeed != _speed) {
+            setSpeed(newSpeed);
+            Serial.print("StepperDriver: Ramp speed updated to ");
+            Serial.print(newSpeed);
+            Serial.println(" RPM");
+        }
+    } else {
+        // Ramp complete
+        setSpeed(_rampTargetSpeed);
+        Serial.println("StepperDriver: Ramp test completed");
+    }
+}
+
+void StepperDriver::testDirection360() {
+    if (!_testMode || !_enabled) {
+        Serial.println("StepperDriver: Test mode not active or motor disabled");
+        return;
+    }
+
+    int fullRotation = 200; // 200 steps = 360° for 1.8° per step motor
+
+    Serial.println("StepperDriver: Starting 360° direction test");
+
+    // Rotate 360° clockwise
+    setSpeed(300); // Medium speed for direction test
+    setDirection(true);
+    step(fullRotation);
+    _currentPosition += fullRotation;
+
+    delay(1000); // Pause between directions
+
+    // Rotate 360° counter-clockwise (return to start)
+    setDirection(false);
+    step(fullRotation);
+    _currentPosition -= fullRotation;
+
+    Serial.println("StepperDriver: 360° direction test completed");
+}
+
+int StepperDriver::getCurrentPosition() const {
+    return _currentPosition;
+}
+
+void StepperDriver::resetPosition() {
+    _currentPosition = 0;
+    Serial.println("StepperDriver: Position reset to 0");
+}
+
+void StepperDriver::setTestPosition(int position) {
+    _currentPosition = position;
+    Serial.print("StepperDriver: Position set to ");
+    Serial.println(position);
+}

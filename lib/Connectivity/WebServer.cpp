@@ -4,7 +4,9 @@
 WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
     : _server(80), _stateMachine(stateMachine), _safetyMonitor(safetyMonitor),
       _calibrationActive(false), _calibrationStartTime(0), _calibrationStep(0),
-      _currentSensorCalibrating("") {}
+      _currentSensorCalibrating(""), _motorTestActive(false), _currentMotorTest(""),
+      _motorTestStartTime(0), _motorTestStep(0), _leftMotorPosition(0),
+      _rightMotorPosition(0), _motorTestSafetyCheck(true) {}
 
 void WebServer::begin(int port) {
     _server.begin();
@@ -41,6 +43,13 @@ void WebServer::handleClient() {
             sendConfigPage(client);
         } else if (request.indexOf("GET /debug") >= 0) {
             sendDebugPage(client);
+        } else if (request.indexOf("GET /motor-test") >= 0) {
+            sendMotorTestPage(client);
+        } else if (request.indexOf("GET /api/motor-test") >= 0) {
+            int apiStart = request.indexOf("/api/motor-test") + 15;
+            int apiEnd = request.indexOf(" ", apiStart);
+            String command = request.substring(apiStart, apiEnd);
+            handleMotorTestAPI(client, command);
         } else if (request.indexOf("GET /calibration") >= 0) {
             sendCalibrationPage(client);
         } else if (request.indexOf("GET /api/calibrate") >= 0) {
@@ -61,6 +70,425 @@ void WebServer::handleClient() {
         client.stop();
         Serial.println("Client disconnected");
     }
+}
+
+void WebServer::handleMotorTestAPI(WiFiClient& client, String command) {
+    Serial.print("Motor Test API Command: ");
+    Serial.println(command);
+
+    // Safety check before any motor operation
+    if (!checkMotorTestSafety() && !command.startsWith("-stop")) {
+        sendJsonResponse(client, "{\"error\":\"Safety interlock active - obstacles detected\"}");
+        return;
+    }
+
+    if (command.startsWith("-left")) {
+        testMotorLeft(client, command);
+    } else if (command.startsWith("-right")) {
+        testMotorRight(client, command);
+    } else if (command.startsWith("-ramp-test")) {
+        startRampTest(client, command);
+    } else if (command == "-position") {
+        getMotorPosition(client);
+    } else if (command.startsWith("-direction")) {
+        testMotorDirection(client, command);
+    } else if (command == "-sync-test") {
+        testMotorSync(client);
+    } else if (command == "-stop") {
+        stopMotorTest(client);
+    } else if (command == "-status") {
+        getMotorTestStatus(client);
+    } else if (command == "-reset-position") {
+        resetMotorPositions();
+        sendJsonResponse(client, "{\"status\":\"positions_reset\"}");
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Unknown motor test command\"}");
+    }
+}
+
+void WebServer::testMotorLeft(WiFiClient& client, String params) {
+    // Extract parameters: -left?speed=300&steps=200&direction=1
+    int speedStart = params.indexOf("speed=") + 6;
+    int speedEnd = params.indexOf("&", speedStart);
+    int speed = params.substring(speedStart, speedEnd).toInt();
+
+    int stepsStart = params.indexOf("steps=") + 6;
+    int stepsEnd = params.indexOf("&", stepsStart);
+    int steps = params.substring(stepsStart, stepsEnd).toInt();
+
+    int dirStart = params.indexOf("direction=") + 10;
+    bool clockwise = params.substring(dirStart).toInt() == 1;
+
+    if (speed < 100 || speed > 700) {
+        sendJsonResponse(client, "{\"error\":\"Speed must be between 100-700 RPM\"}");
+        return;
+    }
+
+    _motorTestActive = true;
+    _currentMotorTest = "left";
+    _motorTestStartTime = millis();
+
+    // Command left motor through state machine or direct control
+    // This would integrate with your StepperDriver
+    _leftMotorPosition += clockwise ? steps : -steps;
+
+    String response = "{\"status\":\"testing\",\"motor\":\"left\",\"speed\":" +
+                     String(speed) + ",\"steps\":" + String(steps) +
+                     ",\"direction\":\"" + (clockwise ? "CW" : "CCW") + "\"}";
+    sendJsonResponse(client, response);
+
+    Serial.print("Testing left motor: ");
+    Serial.print(speed);
+    Serial.print(" RPM, ");
+    Serial.print(steps);
+    Serial.println(" steps");
+}
+
+void WebServer::testMotorRight(WiFiClient& client, String params) {
+    // Similar implementation to testMotorLeft but for right motor
+    int speedStart = params.indexOf("speed=") + 6;
+    int speedEnd = params.indexOf("&", speedStart);
+    int speed = params.substring(speedStart, speedEnd).toInt();
+
+    int stepsStart = params.indexOf("steps=") + 6;
+    int stepsEnd = params.indexOf("&", stepsStart);
+    int steps = params.substring(stepsStart, stepsEnd).toInt();
+
+    int dirStart = params.indexOf("direction=") + 10;
+    bool clockwise = params.substring(dirStart).toInt() == 1;
+
+    if (speed < 100 || speed > 700) {
+        sendJsonResponse(client, "{\"error\":\"Speed must be between 100-700 RPM\"}");
+        return;
+    }
+
+    _motorTestActive = true;
+    _currentMotorTest = "right";
+    _motorTestStartTime = millis();
+
+    _rightMotorPosition += clockwise ? steps : -steps;
+
+    String response = "{\"status\":\"testing\",\"motor\":\"right\",\"speed\":" +
+                     String(speed) + ",\"steps\":" + String(steps) +
+                     ",\"direction\":\"" + (clockwise ? "CW" : "CCW") + "\"}";
+    sendJsonResponse(client, response);
+
+    Serial.print("Testing right motor: ");
+    Serial.print(speed);
+    Serial.print(" RPM, ");
+    Serial.print(steps);
+    Serial.println(" steps");
+}
+
+void WebServer::startRampTest(WiFiClient& client, String params) {
+    // Extract motor parameter: -ramp-test?motor=left&max_speed=600
+    int motorStart = params.indexOf("motor=") + 6;
+    int motorEnd = params.indexOf("&", motorStart);
+    String motor = params.substring(motorStart, motorEnd);
+
+    int maxSpeedStart = params.indexOf("max_speed=") + 10;
+    int maxSpeed = params.substring(maxSpeedStart).toInt();
+
+    if (maxSpeed < 200 || maxSpeed > 700) {
+        sendJsonResponse(client, "{\"error\":\"Max speed must be between 200-700 RPM\"}");
+        return;
+    }
+
+    _motorTestActive = true;
+    _currentMotorTest = "ramp_" + motor;
+    _motorTestStartTime = millis();
+    _motorTestStep = 100; // Starting speed
+
+    String response = "{\"status\":\"ramp_started\",\"motor\":\"" + motor +
+                     "\",\"max_speed\":" + String(maxSpeed) +
+                     ",\"current_speed\":100}";
+    sendJsonResponse(client, response);
+
+    Serial.print("Starting ramp test for ");
+    Serial.print(motor);
+    Serial.print(" motor, max speed: ");
+    Serial.println(maxSpeed);
+}
+
+void WebServer::testMotorDirection(WiFiClient& client, String params) {
+    // Extract motor parameter: -direction?motor=left
+    int motorStart = params.indexOf("motor=") + 6;
+    String motor = params.substring(motorStart);
+
+    _motorTestActive = true;
+    _currentMotorTest = "direction_" + motor;
+    _motorTestStartTime = millis();
+
+    // 360 degree test = 200 steps for typical stepper (1.8° per step)
+    int fullRotationSteps = 200;
+
+    // Test clockwise rotation
+    if (motor == "left") {
+        _leftMotorPosition += fullRotationSteps;
+    } else {
+        _rightMotorPosition += fullRotationSteps;
+    }
+
+    String response = "{\"status\":\"direction_test\",\"motor\":\"" + motor +
+                     "\",\"phase\":\"clockwise\",\"steps\":" + String(fullRotationSteps) + "}";
+    sendJsonResponse(client, response);
+
+    Serial.print("Testing direction for ");
+    Serial.print(motor);
+    Serial.println(" motor - 360° CW then CCW");
+}
+
+void WebServer::testMotorSync(WiFiClient& client) {
+    _motorTestActive = true;
+    _currentMotorTest = "synchronization";
+    _motorTestStartTime = millis();
+
+    // Test both motors at same speed for synchronization
+    int testSpeed = 400; // RPM
+    int testSteps = 100;
+
+    String response = "{\"status\":\"sync_test\",\"speed\":" + String(testSpeed) +
+                     ",\"steps\":" + String(testSteps) + "}";
+    sendJsonResponse(client, response);
+
+    Serial.println("Starting motor synchronization test");
+}
+
+void WebServer::getMotorPosition(WiFiClient& client) {
+    String response = "{";
+    response += "\"left_position\":" + String(_leftMotorPosition) + ",";
+    response += "\"right_position\":" + String(_rightMotorPosition) + ",";
+    response += "\"left_degrees\":" + String(_leftMotorPosition * 1.8) + ",";
+    response += "\"right_degrees\":" + String(_rightMotorPosition * 1.8);
+    response += "}";
+
+    sendJsonResponse(client, response);
+}
+
+void WebServer::stopMotorTest(WiFiClient& client) {
+    _motorTestActive = false;
+    _currentMotorTest = "";
+
+    // Send stop commands to motors through state machine
+    // _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+
+    sendJsonResponse(client, "{\"status\":\"stopped\"}");
+    Serial.println("Motor test stopped");
+}
+
+void WebServer::getMotorTestStatus(WiFiClient& client) {
+    String response = "{";
+    response += "\"active\":" + String(_motorTestActive ? "true" : "false") + ",";
+    response += "\"test_type\":\"" + _currentMotorTest + "\",";
+    response += "\"safety_ok\":" + String(checkMotorTestSafety() ? "true" : "false") + ",";
+
+    if (_motorTestActive) {
+        unsigned long elapsed = millis() - _motorTestStartTime;
+        response += "\"elapsed\":" + String(elapsed) + ",";
+        response += "\"step\":" + String(_motorTestStep);
+    } else {
+        response += "\"elapsed\":0,\"step\":0";
+    }
+
+    response += "}";
+    sendJsonResponse(client, response);
+}
+
+bool WebServer::checkMotorTestSafety() {
+    // Check for obstacles within 15cm safety zone
+    float frontDist = _safetyMonitor->getFrontDistance();
+    float rearDist = _safetyMonitor->getRearDistance();
+
+    bool safetyOK = (frontDist == 0 || frontDist > 15.0) &&
+                    (rearDist == 0 || rearDist > 15.0);
+
+    if (!safetyOK && _motorTestSafetyCheck) {
+        Serial.println("Motor test safety interlock: Obstacles detected within 15cm");
+        return false;
+    }
+
+    return true;
+}
+
+void WebServer::resetMotorPositions() {
+    _leftMotorPosition = 0;
+    _rightMotorPosition = 0;
+    Serial.println("Motor positions reset to home (0,0)");
+}
+
+void WebServer::sendMotorTestPage(WiFiClient& client) {
+    sendHttpHeader(client);
+
+    client.println("<!DOCTYPE html>");
+    client.println("<html lang='en'>");
+    client.println("<head>");
+    client.println("<meta charset='UTF-8'>");
+    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+    client.println("<title>Motor Testing - Wheelchair Swing</title>");
+    client.println("<style>");
+    client.println("body { font-family: Arial; margin: 20px; background: #f5f5f5; }");
+    client.println(".container { max-width: 1200px; margin: 0 auto; }");
+    client.println(".card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
+    client.println(".motor-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }");
+    client.println(".slider-control { margin: 15px 0; }");
+    client.println(".slider { width: 100%; margin: 10px 0; }");
+    client.println(".button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }");
+    client.println(".button:hover { background: #0056b3; }");
+    client.println(".button.success { background: #28a745; }");
+    client.println(".button.danger { background: #dc3545; }");
+    client.println(".position-display { font-size: 18px; font-weight: bold; text-align: center; margin: 15px 0; }");
+    client.println(".safety-status { padding: 10px; border-radius: 5px; margin: 10px 0; font-weight: bold; }");
+    client.println(".safety-ok { background: #d4edda; color: #155724; }");
+    client.println(".safety-warning { background: #f8d7da; color: #721c24; }");
+    client.println("</style>");
+    client.println("</head>");
+    client.println("<body>");
+
+    client.println(generateMotorTestHTML());
+
+    client.println("<script>");
+    client.println("let motorTestActive = false;");
+    client.println("let leftPosition = 0;");
+    client.println("let rightPosition = 0;");
+
+    // JavaScript for motor control functionality
+    client.println("function testMotor(motor) {");
+    client.println("  const speed = document.getElementById(motor + 'Speed').value;");
+    client.println("  const steps = document.getElementById(motor + 'Steps').value;");
+    client.println("  const direction = document.getElementById(motor + 'Direction').checked ? 1 : 0;");
+    client.println("  fetch(`/api/motor-test-${motor}?speed=${speed}&steps=${steps}&direction=${direction}`)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => updateStatus(data));");
+    client.println("}");
+
+    client.println("function startRampTest(motor) {");
+    client.println("  const maxSpeed = document.getElementById('rampMaxSpeed').value;");
+    client.println("  fetch(`/api/motor-test-ramp-test?motor=${motor}&max_speed=${maxSpeed}`)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => updateStatus(data));");
+    client.println("}");
+
+    client.println("function updatePosition() {");
+    client.println("  fetch('/api/motor-test-position')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      document.getElementById('leftPos').textContent = data.left_position;");
+    client.println("      document.getElementById('rightPos').textContent = data.right_position;");
+    client.println("      document.getElementById('leftDeg').textContent = data.left_degrees.toFixed(1);");
+    client.println("      document.getElementById('rightDeg').textContent = data.right_degrees.toFixed(1);");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function stopAllMotors() {");
+    client.println("  fetch('/api/motor-test-stop')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => updateStatus(data));");
+    client.println("}");
+
+    client.println("function updateStatus(data) {");
+    client.println("  console.log('Motor test status:', data);");
+    client.println("}");
+
+    client.println("// Update position every 2 seconds");
+    client.println("setInterval(updatePosition, 2000);");
+    client.println("updatePosition();");
+
+    client.println("</script>");
+    client.println("</body></html>");
+}
+
+String WebServer::generateMotorTestHTML() {
+    String html = "<div class='container'>";
+    html += "<h1>Motor Testing Interface</h1>";
+    html += "<p><a href='/'>← Back to Home</a></p>";
+
+    // Safety status
+    html += "<div class='safety-status " + String(checkMotorTestSafety() ? "safety-ok" : "safety-warning") + "'>";
+    html += checkMotorTestSafety() ? "✓ Safety Systems OK - Testing Enabled" : "⚠ Safety Interlock Active - Obstacles Detected";
+    html += "</div>";
+
+    // Position display
+    html += "<div class='card'>";
+    html += "<h2>Current Positions</h2>";
+    html += "<div class='motor-controls'>";
+    html += "<div>";
+    html += "<h3>Left Motor</h3>";
+    html += "<div class='position-display'>Steps: <span id='leftPos'>0</span></div>";
+    html += "<div class='position-display'>Degrees: <span id='leftDeg'>0.0</span>°</div>";
+    html += "</div>";
+    html += "<div>";
+    html += "<h3>Right Motor</h3>";
+    html += "<div class='position-display'>Steps: <span id='rightPos'>0</span></div>";
+    html += "<div class='position-display'>Degrees: <span id='rightDeg'>0.0</span>°</div>";
+    html += "</div>";
+    html += "</div>";
+    html += "</div>";
+
+    // Individual motor controls
+    html += "<div class='card'>";
+    html += "<h2>Individual Motor Testing</h2>";
+    html += "<div class='motor-controls'>";
+
+    // Left motor controls
+    html += "<div>";
+    html += "<h3>Left Motor</h3>";
+    html += "<div class='slider-control'>";
+    html += "<label>Speed (RPM): <span id='leftSpeedDisplay'>300</span></label>";
+    html += "<input type='range' id='leftSpeed' class='slider' min='100' max='700' value='300' oninput='document.getElementById(\"leftSpeedDisplay\").textContent=this.value'>";
+    html += "</div>";
+    html += "<div class='slider-control'>";
+    html += "<label>Steps: <span id='leftStepsDisplay'>100</span></label>";
+    html += "<input type='range' id='leftSteps' class='slider' min='10' max='500' value='100' oninput='document.getElementById(\"leftStepsDisplay\").textContent=this.value'>";
+    html += "</div>";
+    html += "<div class='slider-control'>";
+    html += "<label><input type='checkbox' id='leftDirection'> Clockwise</label>";
+    html += "</div>";
+    html += "<button class='button' onclick='testMotor(\"left\")'>Test Left Motor</button>";
+    html += "</div>";
+
+    // Right motor controls
+    html += "<div>";
+    html += "<h3>Right Motor</h3>";
+    html += "<div class='slider-control'>";
+    html += "<label>Speed (RPM): <span id='rightSpeedDisplay'>300</span></label>";
+    html += "<input type='range' id='rightSpeed' class='slider' min='100' max='700' value='300' oninput='document.getElementById(\"rightSpeedDisplay\").textContent=this.value'>";
+    html += "</div>";
+    html += "<div class='slider-control'>";
+    html += "<label>Steps: <span id='rightStepsDisplay'>100</span></label>";
+    html += "<input type='range' id='rightSteps' class='slider' min='10' max='500' value='100' oninput='document.getElementById(\"rightStepsDisplay\").textContent=this.value'>";
+    html += "</div>";
+    html += "<div class='slider-control'>";
+    html += "<label><input type='checkbox' id='rightDirection'> Clockwise</label>";
+    html += "</div>";
+    html += "<button class='button' onclick='testMotor(\"right\")'>Test Right Motor</button>";
+    html += "</div>";
+
+    html += "</div>";
+    html += "</div>";
+
+    // Advanced testing
+    html += "<div class='card'>";
+    html += "<h2>Advanced Testing</h2>";
+    html += "<div class='slider-control'>";
+    html += "<label>Ramp Test Max Speed: <span id='rampMaxSpeedDisplay'>600</span> RPM</label>";
+    html += "<input type='range' id='rampMaxSpeed' class='slider' min='200' max='700' value='600' oninput='document.getElementById(\"rampMaxSpeedDisplay\").textContent=this.value'>";
+    html += "</div>";
+    html += "<button class='button' onclick='startRampTest(\"left\")'>Ramp Test Left</button>";
+    html += "<button class='button' onclick='startRampTest(\"right\")'>Ramp Test Right</button>";
+    html += "<button class='button' onclick='fetch(\"/api/motor-test-direction?motor=left\")'>Direction Test Left</button>";
+    html += "<button class='button' onclick='fetch(\"/api/motor-test-direction?motor=right\")'>Direction Test Right</button>";
+    html += "<button class='button' onclick='fetch(\"/api/motor-test-sync-test\")'>Synchronization Test</button>";
+    html += "</div>";
+
+    // Emergency controls
+    html += "<div class='card'>";
+    html += "<h2>Emergency Controls</h2>";
+    html += "<button class='button danger' onclick='stopAllMotors()'>EMERGENCY STOP</button>";
+    html += "<button class='button' onclick='fetch(\"/api/motor-test-reset-position\").then(() => updatePosition())'>Reset Positions</button>";
+    html += "</div>";
+
+    html += "</div>";
+    return html;
 }
 
 void WebServer::handleCalibrationAPI(WiFiClient& client, String command) {

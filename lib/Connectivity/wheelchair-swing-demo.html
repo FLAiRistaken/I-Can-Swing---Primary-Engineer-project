@@ -528,6 +528,168 @@
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
         }
+
+    /* Motor testing specific styles */
+        .motor-test-container {
+            background: rgba(255,255,255,0.98);
+            border-radius: 20px;
+            padding: 30px;
+            margin: 20px 0;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+
+        .dual-motor-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin: 20px 0;
+        }
+
+        .motor-panel {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+        }
+
+        .motor-panel.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        }
+
+        .motor-slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+
+        .motor-slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+
+        .speed-display {
+            font-size: 2.5rem;
+            font-weight: bold;
+            text-align: center;
+            margin: 15px 0;
+            color: #667eea;
+        }
+
+        .position-tracker {
+            background: #2d3748;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        .direction-toggle {
+            display: flex;
+            justify-content: center;
+            margin: 15px 0;
+        }
+
+        .direction-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 0 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .direction-btn.active {
+            background: #667eea;
+            transform: scale(1.05);
+        }
+
+        .ramp-progress {
+            background: #e9ecef;
+            height: 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            overflow: hidden;
+        }
+
+        .ramp-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .sync-indicator {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border-left: 4px solid #ffc107;
+        }
+
+        .sync-status {
+            font-weight: bold;
+            color: #856404;
+        }
+
+        .motor-chart {
+            height: 200px;
+            margin: 20px 0;
+        }
+
+        .safety-interlock {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border-left: 4px solid #dc3545;
+            display: none;
+        }
+
+        .safety-interlock.active {
+            display: block;
+        }
+
+        .test-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .emergency-stop {
+            background: linear-gradient(135deg, #dc3545, #c82333);
+            color: white;
+            border: none;
+            padding: 20px;
+            border-radius: 15px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            animation: pulse-emergency 2s infinite;
+        }
+
+        @keyframes pulse-emergency {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
     </style>
 </head>
 <body>
@@ -573,6 +735,9 @@
                 </button>
                 <button class='nav-button' onclick='showPage("control")'>
                     <i class='fas fa-gamepad'></i>Control Panel
+                </button>
+                <button class='nav-button active' onclick='showPage("motor-test")'>
+                    <i class='fas fa-cogs'></i>Motor Testing
                 </button>
                 <button class='nav-button' onclick='showPage("calibration")'>
                     <i class='fas fa-sliders-h'></i>Calibration
@@ -782,6 +947,181 @@
                     <button class='save-button' onclick='saveConfig()'>
                         <i class='fas fa-save'></i> Save Configuration
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Motor Testing Page Content -->
+        <div id='motor-test-content' class='page-content active'>
+            <div class='motor-test-container'>
+                <h2><i class='fas fa-cogs'></i> Motor Testing & Tuning</h2>
+
+                <!-- Safety Status -->
+                <div id='safety-status' class='safety-interlock'>
+                    <strong>⚠ Safety Interlock Active</strong><br>
+                    Obstacles detected within 15cm safety zone. Motor testing disabled.
+                </div>
+
+                <!-- Current Positions Display -->
+                <div class='card'>
+                    <h3><i class='fas fa-crosshairs'></i> Current Positions</h3>
+                    <div class='dual-motor-layout'>
+                        <div class='position-tracker'>
+                            <div><strong>LEFT MOTOR</strong></div>
+                            <div>Steps: <span id='left-steps'>0</span></div>
+                            <div>Degrees: <span id='left-degrees'>0.0</span>°</div>
+                            <div>Rotations: <span id='left-rotations'>0.0</span></div>
+                        </div>
+                        <div class='position-tracker'>
+                            <div><strong>RIGHT MOTOR</strong></div>
+                            <div>Steps: <span id='right-steps'>0</span></div>
+                            <div>Degrees: <span id='right-degrees'>0.0</span>°</div>
+                            <div>Rotations: <span id='right-rotations'>0.0</span></div>
+                        </div>
+                    </div>
+                    <div class='control-grid'>
+                        <button class='control-button warning' onclick='resetPositions()'>
+                            <i class='fas fa-home'></i>Reset to Home
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Individual Motor Controls -->
+                <div class='card'>
+                    <h3><i class='fas fa-sliders-h'></i> Individual Motor Control</h3>
+                    <div class='dual-motor-layout'>
+                        <!-- Left Motor Controls -->
+                        <div class='motor-panel' id='left-motor-panel'>
+                            <h4>Left Motor</h4>
+                            <div class='speed-display' id='left-speed-display'>300 RPM</div>
+
+                            <label>Speed Control:</label>
+                            <input type='range' class='motor-slider' id='left-speed-slider'
+                                   min='100' max='700' value='300'
+                                   oninput='updateSpeedDisplay("left", this.value)'>
+
+                            <label>Steps to Move:</label>
+                            <input type='range' class='motor-slider' id='left-steps-slider'
+                                   min='10' max='1000' value='100'
+                                   oninput='updateStepsDisplay("left", this.value)'>
+                            <div>Steps: <span id='left-steps-value'>100</span></div>
+
+                            <div class='direction-toggle'>
+                                <button class='direction-btn active' id='left-cw' onclick='setDirection("left", "cw")'>
+                                    <i class='fas fa-redo'></i> CW
+                                </button>
+                                <button class='direction-btn' id='left-ccw' onclick='setDirection("left", "ccw")'>
+                                    <i class='fas fa-undo'></i> CCW
+                                </button>
+                            </div>
+
+                            <button class='control-button primary' onclick='testIndividualMotor("left")'>
+                                <i class='fas fa-play'></i>Test Left Motor
+                            </button>
+                        </div>
+
+                        <!-- Right Motor Controls -->
+                        <div class='motor-panel' id='right-motor-panel'>
+                            <h4>Right Motor</h4>
+                            <div class='speed-display' id='right-speed-display'>300 RPM</div>
+
+                            <label>Speed Control:</label>
+                            <input type='range' class='motor-slider' id='right-speed-slider'
+                                   min='100' max='700' value='300'
+                                   oninput='updateSpeedDisplay("right", this.value)'>
+
+                            <label>Steps to Move:</label>
+                            <input type='range' class='motor-slider' id='right-steps-slider'
+                                   min='10' max='1000' value='100'
+                                   oninput='updateStepsDisplay("right", this.value)'>
+                            <div>Steps: <span id='right-steps-value'>100</span></div>
+
+                            <div class='direction-toggle'>
+                                <button class='direction-btn active' id='right-cw' onclick='setDirection("right", "cw")'>
+                                    <i class='fas fa-redo'></i> CW
+                                </button>
+                                <button class='direction-btn' id='right-ccw' onclick='setDirection("right", "ccw")'>
+                                    <i class='fas fa-undo'></i> CCW
+                                </button>
+                            </div>
+
+                            <button class='control-button primary' onclick='testIndividualMotor("right")'>
+                                <i class='fas fa-play'></i>Test Right Motor
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Speed Ramping Test -->
+                <div class='card'>
+                    <h3><i class='fas fa-tachometer-alt'></i> Speed Ramping Test</h3>
+                    <div class='dual-motor-layout'>
+                        <div>
+                            <label>Max Speed: <span id='ramp-max-display'>600</span> RPM</label>
+                            <input type='range' class='motor-slider' id='ramp-max-slider'
+                                   min='200' max='700' value='600'
+                                   oninput='document.getElementById("ramp-max-display").textContent=this.value'>
+
+                            <div class='ramp-progress'>
+                                <div class='ramp-fill' id='ramp-progress-fill'></div>
+                            </div>
+                            <div>Current: <span id='ramp-current-speed'>100</span> RPM</div>
+
+                            <div class='control-grid'>
+                                <button class='control-button success' onclick='startRampTest("left")'>
+                                    <i class='fas fa-arrow-up'></i>Ramp Left
+                                </button>
+                                <button class='control-button success' onclick='startRampTest("right")'>
+                                    <i class='fas fa-arrow-up'></i>Ramp Right
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class='motor-chart'>
+                            <canvas id='rampChart'></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Direction Testing -->
+                <div class='card'>
+                    <h3><i class='fas fa-sync-alt'></i> Direction & Synchronization Testing</h3>
+                    <div class='test-controls'>
+                        <button class='control-button primary' onclick='testDirection("left")'>
+                            <i class='fas fa-sync-alt'></i>360° Test Left
+                        </button>
+                        <button class='control-button primary' onclick='testDirection("right")'>
+                            <i class='fas fa-sync-alt'></i>360° Test Right
+                        </button>
+                        <button class='control-button primary' onclick='testSynchronization()'>
+                            <i class='fas fa-link'></i>Sync Test
+                        </button>
+                    </div>
+
+                    <!-- Synchronization Status -->
+                    <div class='sync-indicator' id='sync-indicator' style='display: none;'>
+                        <div>
+                            <div class='sync-status'>Synchronization Test Active</div>
+                            <div>Speed Difference: <span id='speed-diff'>0</span> RPM</div>
+                        </div>
+                        <div>
+                            <div>Left: <span id='sync-left-speed'>0</span> RPM</div>
+                            <div>Right: <span id='sync-right-speed'>0</span> RPM</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Emergency Controls -->
+                <div class='card'>
+                    <h3><i class='fas fa-exclamation-triangle'></i> Emergency Controls</h3>
+                    <div class='control-grid'>
+                        <button class='emergency-stop' onclick='emergencyStopMotors()'>
+                            <i class='fas fa-stop'></i>EMERGENCY STOP
+                        </button>
+                        <button class='control-button warning' onclick='stopAllMotorTests()'>
+                            <i class='fas fa-pause'></i>Stop All Tests
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1528,9 +1868,306 @@
             isCalibrating = false;
         }
 
-        // Initialize calibration system
+        // Motor testing system variables
+        let rampChart;
+        let leftMotorDirection = 'cw';
+        let rightMotorDirection = 'cw';
+        let motorPositions = { left: 0, right: 0 };
+        let rampTestActive = false;
+        let rampTestMotor = '';
+        let syncTestActive = false;
+        let safetyInterlockActive = false;
+
+        // Initialize motor testing system
+        function initializeMotorTesting() {
+            initializeRampChart();
+            updateSafetyStatus();
+            setInterval(updateMotorPositions, 1000);
+            setInterval(updateSafetyStatus, 2000);
+        }
+
+        // Initialize ramp chart
+        function initializeRampChart() {
+            const ctx = document.getElementById('rampChart');
+            if (!ctx) return;
+
+            rampChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Target Speed',
+                        data: [],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Actual Speed',
+                        data: [],
+                        borderColor: '#28a745',
+                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 800,
+                            title: {
+                                display: true,
+                                text: 'Speed (RPM)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time (seconds)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update speed display
+        function updateSpeedDisplay(motor, speed) {
+            document.getElementById(`${motor}-speed-display`).textContent = speed + ' RPM';
+        }
+
+        // Update steps display
+        function updateStepsDisplay(motor, steps) {
+            document.getElementById(`${motor}-steps-value`).textContent = steps;
+        }
+
+        // Set motor direction
+        function setDirection(motor, direction) {
+            // Update button states
+            document.getElementById(`${motor}-cw`).classList.toggle('active', direction === 'cw');
+            document.getElementById(`${motor}-ccw`).classList.toggle('active', direction === 'ccw');
+
+            // Store direction
+            if (motor === 'left') {
+                leftMotorDirection = direction;
+            } else {
+                rightMotorDirection = direction;
+            }
+        }
+
+        // Test individual motor
+        function testIndividualMotor(motor) {
+            if (safetyInterlockActive) {
+                showNotification('Motor testing disabled - safety interlock active', 'error');
+                return;
+            }
+
+            const speed = document.getElementById(`${motor}-speed-slider`).value;
+            const steps = document.getElementById(`${motor}-steps-slider`).value;
+            const direction = motor === 'left' ? leftMotorDirection : rightMotorDirection;
+
+            // Highlight active motor panel
+            document.getElementById(`${motor}-motor-panel`).classList.add('active');
+            setTimeout(() => {
+                document.getElementById(`${motor}-motor-panel`).classList.remove('active');
+            }, 2000);
+
+            // Simulate motor movement
+            simulateMotorMovement(motor, parseInt(steps), direction === 'cw');
+
+            showNotification(`Testing ${motor} motor: ${speed} RPM, ${steps} steps ${direction.toUpperCase()}`, 'info');
+        }
+
+        // Simulate motor movement
+        function simulateMotorMovement(motor, steps, clockwise) {
+            const increment = clockwise ? steps : -steps;
+            motorPositions[motor] += increment;
+            updateMotorPositions();
+        }
+
+        // Update motor positions display
+        function updateMotorPositions() {
+            // Update left motor
+            document.getElementById('left-steps').textContent = motorPositions.left;
+            document.getElementById('left-degrees').textContent = (motorPositions.left * 1.8).toFixed(1);
+            document.getElementById('left-rotations').textContent = (motorPositions.left / 200).toFixed(2);
+
+            // Update right motor
+            document.getElementById('right-steps').textContent = motorPositions.right;
+            document.getElementById('right-degrees').textContent = (motorPositions.right * 1.8).toFixed(1);
+            document.getElementById('right-rotations').textContent = (motorPositions.right / 200).toFixed(2);
+        }
+
+        // Start ramp test
+        function startRampTest(motor) {
+            if (safetyInterlockActive) {
+                showNotification('Ramp testing disabled - safety interlock active', 'error');
+                return;
+            }
+
+            const maxSpeed = parseInt(document.getElementById('ramp-max-slider').value);
+            rampTestActive = true;
+            rampTestMotor = motor;
+
+            showNotification(`Starting ramp test for ${motor} motor to ${maxSpeed} RPM`, 'info');
+
+            // Simulate ramp test
+            simulateRampTest(maxSpeed);
+        }
+
+        // Simulate ramp test
+        function simulateRampTest(maxSpeed) {
+            const startSpeed = 100;
+            const duration = 10000; // 10 seconds
+            const steps = 50; // Update every 200ms
+            const increment = (maxSpeed - startSpeed) / steps;
+
+            let currentStep = 0;
+
+            // Clear previous chart data
+            rampChart.data.labels = [];
+            rampChart.data.datasets[0].data = [];
+            rampChart.data.datasets[1].data = [];
+
+            const interval = setInterval(() => {
+                if (currentStep >= steps || !rampTestActive) {
+                    clearInterval(interval);
+                    rampTestActive = false;
+                    document.getElementById('ramp-progress-fill').style.width = '100%';
+                    showNotification('Ramp test completed', 'success');
+                    return;
+                }
+
+                const targetSpeed = startSpeed + (increment * currentStep);
+                const actualSpeed = targetSpeed + (Math.random() - 0.5) * 10; // Add some noise
+                const timeSeconds = (currentStep * duration / steps) / 1000;
+
+                // Update progress bar
+                const progress = (currentStep / steps) * 100;
+                document.getElementById('ramp-progress-fill').style.width = progress + '%';
+                document.getElementById('ramp-current-speed').textContent = Math.round(actualSpeed);
+
+                // Update chart
+                rampChart.data.labels.push(timeSeconds.toFixed(1));
+                rampChart.data.datasets[0].data.push(targetSpeed);
+                rampChart.data.datasets[1].data.push(actualSpeed);
+
+                // Keep only last 20 points
+                if (rampChart.data.labels.length > 20) {
+                    rampChart.data.labels.shift();
+                    rampChart.data.datasets[0].data.shift();
+                    rampChart.data.datasets[1].data.shift();
+                }
+
+                rampChart.update('none');
+                currentStep++;
+            }, duration / steps);
+        }
+
+        // Test motor direction (360 degree test)
+        function testDirection(motor) {
+            if (safetyInterlockActive) {
+                showNotification('Direction testing disabled - safety interlock active', 'error');
+                return;
+            }
+
+            showNotification(`Starting 360° direction test for ${motor} motor`, 'info');
+
+            // Simulate 360 degree rotation (200 steps)
+            setTimeout(() => {
+                simulateMotorMovement(motor, 200, true); // CW
+                showNotification(`${motor} motor: 360° clockwise complete`, 'info');
+
+                setTimeout(() => {
+                    simulateMotorMovement(motor, 200, false); // CCW back to start
+                    showNotification(`${motor} motor: 360° counter-clockwise complete`, 'success');
+                }, 2000);
+            }, 1000);
+        }
+
+        // Test motor synchronization
+        function testSynchronization() {
+            if (safetyInterlockActive) {
+                showNotification('Synchronization testing disabled - safety interlock active', 'error');
+                return;
+            }
+
+            syncTestActive = true;
+            document.getElementById('sync-indicator').style.display = 'flex';
+
+            showNotification('Starting motor synchronization test', 'info');
+
+            // Simulate sync test
+            let testDuration = 5000; // 5 seconds
+            let interval = setInterval(() => {
+                if (!syncTestActive) {
+                    clearInterval(interval);
+                    return;
+                }
+
+                // Simulate slightly different speeds
+                const leftSpeed = 400 + (Math.random() - 0.5) * 20;
+                const rightSpeed = 400 + (Math.random() - 0.5) * 20;
+                const speedDiff = Math.abs(leftSpeed - rightSpeed);
+
+                document.getElementById('sync-left-speed').textContent = Math.round(leftSpeed);
+                document.getElementById('sync-right-speed').textContent = Math.round(rightSpeed);
+                document.getElementById('speed-diff').textContent = speedDiff.toFixed(1);
+
+                testDuration -= 100;
+                if (testDuration <= 0) {
+                    syncTestActive = false;
+                    document.getElementById('sync-indicator').style.display = 'none';
+                    showNotification('Synchronization test completed', 'success');
+                    clearInterval(interval);
+                }
+            }, 100);
+        }
+
+        // Update safety status
+        function updateSafetyStatus() {
+            // Simulate obstacle detection (randomly for demo)
+            const obstacleDetected = Math.random() < 0.1; // 10% chance
+            safetyInterlockActive = obstacleDetected;
+
+            const safetyElement = document.getElementById('safety-status');
+            if (safetyInterlockActive) {
+                safetyElement.classList.add('active');
+            } else {
+                safetyElement.classList.remove('active');
+            }
+        }
+
+        // Reset motor positions
+        function resetPositions() {
+            motorPositions = { left: 0, right: 0 };
+            updateMotorPositions();
+            showNotification('Motor positions reset to home', 'info');
+        }
+
+        // Emergency stop motors
+        function emergencyStopMotors() {
+            rampTestActive = false;
+            syncTestActive = false;
+            document.getElementById('sync-indicator').style.display = 'none';
+            document.getElementById('ramp-progress-fill').style.width = '0%';
+            showNotification('EMERGENCY STOP ACTIVATED - All motor tests stopped', 'error');
+        }
+
+        // Stop all motor tests
+        function stopAllMotorTests() {
+            rampTestActive = false;
+            syncTestActive = false;
+            document.getElementById('sync-indicator').style.display = 'none';
+            showNotification('All motor tests stopped', 'warning');
+        }
+
+
+        // Initialize systems
         document.addEventListener('DOMContentLoaded', function() {
             initializeCalibrationChart();
+            initializeMotorTesting();
         });
 
         // Start real-time data simulation
