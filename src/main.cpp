@@ -12,6 +12,8 @@
 #include "SafetyMonitor.h"
 #include "VoiceRecognition.h"
 
+#ifndef UNIT_TEST
+
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
 DisplayDriver display;
@@ -332,3 +334,5 @@ void loop() {
         updateDisplay();
     }
 }
+
+#endif

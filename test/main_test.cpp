@@ -49,8 +49,8 @@ void runTestGroup(const char* name, void (*testFunction)(), bool condition) {
 }
 
 void setup() {
-    delay(2000); // Wait for Serial to initialize
     Serial.begin(9600);
+    delay(2000); // Wait for Serial to initialize
     Wire.begin(); // Initialize I2C for component detection
 
     Serial.println(F("\n\n===== Wheelchair Swing Test Suite ====="));
