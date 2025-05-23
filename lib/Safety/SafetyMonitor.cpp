@@ -345,6 +345,154 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkMotorOperation() {
     return STATUS_OK;
 }
 
+// Calibration
+void SafetyMonitor::enterCalibrationMode(String sensorType) {
+    _calibrationMode = true;
+    _calibratingsensor = sensorType;
+    _calibrationIndex = 0;
+    _lastCalibrationReading = millis();
+
+    // Initialize calibration data
+    _currentCalibration = {0, 999999, -999999, 0, 0, false};
+
+    Serial.print("Entering calibration mode for: ");
+    Serial.println(sensorType);
+}
+
+void SafetyMonitor::exitCalibrationMode() {
+    _calibrationMode = false;
+    _calibratingsensor = "";
+    Serial.println("Exiting calibration mode");
+}
+
+CalibrationData SafetyMonitor::getCurrentCalibrationData() {
+    if (!_calibrationMode) {
+        return {0, 0, 0, 0, 0, false};
+    }
+
+    // Update calibration readings if in calibration mode
+    unsigned long currentTime = millis();
+    if (currentTime - _lastCalibrationReading >= 100 && _calibrationIndex < 100) {
+        float reading = 0;
+
+        if (_calibratingsensor == "ultrasonic1") {
+            reading = _frontSensor->measureDistance();
+        } else if (_calibratingsensor == "ultrasonic2") {
+            reading = _rearSensor->measureDistance();
+        } else if (_calibratingsensor == "pressure") {
+            reading = _pressureSensor->readRawValue();
+        }
+
+        if (reading > 0) {  // Valid reading
+            _calibrationReadings[_calibrationIndex] = reading;
+            _calibrationIndex++;
+
+            // Update min/max
+            if (reading < _currentCalibration.minValue) {
+                _currentCalibration.minValue = reading;
+            }
+            if (reading > _currentCalibration.maxValue) {
+                _currentCalibration.maxValue = reading;
+            }
+
+            // Calculate average
+            float sum = 0;
+            for (int i = 0; i < _calibrationIndex; i++) {
+                sum += _calibrationReadings[i];
+            }
+            _currentCalibration.average = sum / _calibrationIndex;
+            _currentCalibration.readingCount = _calibrationIndex;
+
+            _lastCalibrationReading = currentTime;
+        }
+    }
+
+    return _currentCalibration;
+}
+
+bool SafetyMonitor::saveCalibrationData() {
+    if (!_calibrationMode || _calibrationIndex < 50) {
+        return false;  // Need at least 50 readings
+    }
+
+    // Calculate final baseline
+    float baseline = _currentCalibration.average;
+
+    // Save to appropriate sensor configuration
+    if (_calibratingsensor == "ultrasonic1") {
+        _ultrasonic1Baseline = baseline;
+        _ultrasonic1MinThreshold = _currentCalibration.minValue * 0.9f;  // 10% margin
+        _ultrasonic1MaxThreshold = _currentCalibration.maxValue * 1.1f;
+    } else if (_calibratingsensor == "ultrasonic2") {
+        _ultrasonic2Baseline = baseline;
+        _ultrasonic2MinThreshold = _currentCalibration.minValue * 0.9f;
+        _ultrasonic2MaxThreshold = _currentCalibration.maxValue * 1.1f;
+    } else if (_calibratingsensor == "pressure") {
+        _pressureBaseline = baseline;
+        _pressureThreshold = (int)(baseline * 1.2f);  // 20% above baseline for detection
+    }
+
+    Serial.print("Calibration saved for ");
+    Serial.print(_calibratingsensor);
+    Serial.print(" - Baseline: ");
+    Serial.println(baseline);
+
+    return true;
+}
+
+void SafetyMonitor::resetCalibrationData() {
+    // Reset to factory defaults
+    _ultrasonic1MinThreshold = 5.0f;
+    _ultrasonic1MaxThreshold = 400.0f;
+    _ultrasonic1Baseline = 200.0f;
+
+    _ultrasonic2MinThreshold = 5.0f;
+    _ultrasonic2MaxThreshold = 400.0f;
+    _ultrasonic2Baseline = 200.0f;
+
+    _pressureThreshold = PRESSURE_THRESHOLD;
+    _pressureBaseline = 100.0f;
+
+    Serial.println("Calibration data reset to factory defaults");
+}
+
+bool SafetyMonitor::updateSensorThresholds(String sensor, float minVal, float maxVal) {
+    if (sensor == "ultrasonic1") {
+        _ultrasonic1MinThreshold = minVal;
+        _ultrasonic1MaxThreshold = maxVal;
+        return true;
+    } else if (sensor == "ultrasonic2") {
+        _ultrasonic2MinThreshold = minVal;
+        _ultrasonic2MaxThreshold = maxVal;
+        return true;
+    } else if (sensor == "pressure") {
+        _pressureThreshold = (int)maxVal;
+        return true;
+    }
+    return false;
+}
+
+// Getter methods
+float SafetyMonitor::getUltrasonicMinThreshold(int sensor) {
+    return (sensor == 1) ? _ultrasonic1MinThreshold : _ultrasonic2MinThreshold;
+}
+
+float SafetyMonitor::getUltrasonicMaxThreshold(int sensor) {
+    return (sensor == 1) ? _ultrasonic1MaxThreshold : _ultrasonic2MaxThreshold;
+}
+
+float SafetyMonitor::getUltrasonicBaseline(int sensor) {
+    return (sensor == 1) ? _ultrasonic1Baseline : _ultrasonic2Baseline;
+}
+
+int SafetyMonitor::getPressureThreshold() {
+    return _pressureThreshold;
+}
+
+float SafetyMonitor::getPressureBaseline() {
+    return _pressureBaseline;
+}
+
 
 float SafetyMonitor::getFrontDistance() const {
     return _frontDistance;

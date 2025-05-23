@@ -2,7 +2,9 @@
 #include "WebServer.h"
 
 WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
-    : _server(80), _stateMachine(stateMachine), _safetyMonitor(safetyMonitor) {}
+    : _server(80), _stateMachine(stateMachine), _safetyMonitor(safetyMonitor),
+      _calibrationActive(false), _calibrationStartTime(0), _calibrationStep(0),
+      _currentSensorCalibrating("") {}
 
 void WebServer::begin(int port) {
     _server.begin();
@@ -39,6 +41,14 @@ void WebServer::handleClient() {
             sendConfigPage(client);
         } else if (request.indexOf("GET /debug") >= 0) {
             sendDebugPage(client);
+        } else if (request.indexOf("GET /calibration") >= 0) {
+            sendCalibrationPage(client);
+        } else if (request.indexOf("GET /api/calibrate") >= 0) {
+            // Extract calibration command
+            int apiStart = request.indexOf("/api/calibrate") + 14;
+            int apiEnd = request.indexOf(" ", apiStart);
+            String command = request.substring(apiStart, apiEnd);
+            handleCalibrationAPI(client, command);
         } else if (request.indexOf("GET /api/") >= 0) {
             int apiStart = request.indexOf("/api/") + 5;
             int apiEnd = request.indexOf(" ", apiStart);
@@ -51,6 +61,334 @@ void WebServer::handleClient() {
         client.stop();
         Serial.println("Client disconnected");
     }
+}
+
+void WebServer::handleCalibrationAPI(WiFiClient& client, String command) {
+    Serial.print("Calibration API Command: ");
+    Serial.println(command);
+
+    if (command.startsWith("-start")) {
+        // Extract sensor type from command like "-start?sensor=ultrasonic1"
+        int paramStart = command.indexOf("sensor=") + 7;
+        String sensorType = command.substring(paramStart);
+        startCalibration(client, sensorType);
+    } else if (command == "-save") {
+        saveCalibration(client);
+    } else if (command == "-reset") {
+        resetCalibration(client);
+    } else if (command == "-status") {
+        getCalibrationStatus(client);
+    } else if (command.startsWith("-threshold")) {
+        updateThreshold(client, command);
+    } else if (command == "-data") {
+        getCalibrationData(client);
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Unknown calibration command\"}");
+    }
+}
+
+void WebServer::startCalibration(WiFiClient& client, String sensorType) {
+    if (_calibrationActive) {
+        sendJsonResponse(client, "{\"error\":\"Calibration already in progress\"}");
+        return;
+    }
+
+    _calibrationActive = true;
+    _calibrationStartTime = millis();
+    _calibrationStep = 1;
+    _currentSensorCalibrating = sensorType;
+
+    // Enter calibration mode in SafetyMonitor
+    _safetyMonitor->enterCalibrationMode(sensorType);
+
+    String response = "{\"status\":\"started\",\"sensor\":\"" + sensorType + "\",\"step\":1}";
+    sendJsonResponse(client, response);
+
+    Serial.print("Calibration started for sensor: ");
+    Serial.println(sensorType);
+}
+
+void WebServer::saveCalibration(WiFiClient& client) {
+    if (!_calibrationActive) {
+        sendJsonResponse(client, "{\"error\":\"No calibration in progress\"}");
+        return;
+    }
+
+    // Save calibration data from SafetyMonitor
+    bool success = _safetyMonitor->saveCalibrationData();
+
+    _calibrationActive = false;
+    _safetyMonitor->exitCalibrationMode();
+
+    if (success) {
+        sendJsonResponse(client, "{\"status\":\"saved\",\"message\":\"Calibration saved successfully\"}");
+        Serial.println("Calibration data saved successfully");
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Failed to save calibration data\"}");
+        Serial.println("Failed to save calibration data");
+    }
+}
+
+void WebServer::resetCalibration(WiFiClient& client) {
+    _calibrationActive = false;
+    _safetyMonitor->exitCalibrationMode();
+    _safetyMonitor->resetCalibrationData();
+
+    sendJsonResponse(client, "{\"status\":\"reset\",\"message\":\"Calibration reset to defaults\"}");
+    Serial.println("Calibration reset to factory defaults");
+}
+
+void WebServer::getCalibrationStatus(WiFiClient& client) {
+    String response = "{";
+    response += "\"active\":" + String(_calibrationActive ? "true" : "false") + ",";
+    response += "\"step\":" + String(_calibrationStep) + ",";
+    response += "\"sensor\":\"" + _currentSensorCalibrating + "\",";
+
+    if (_calibrationActive) {
+        unsigned long elapsed = millis() - _calibrationStartTime;
+        response += "\"elapsed\":" + String(elapsed) + ",";
+
+        // Get current calibration data from SafetyMonitor
+        auto calibData = _safetyMonitor->getCurrentCalibrationData();
+        response += "\"readings\":" + String(calibData.readingCount) + ",";
+        response += "\"min\":" + String(calibData.minValue) + ",";
+        response += "\"max\":" + String(calibData.maxValue) + ",";
+        response += "\"average\":" + String(calibData.average);
+    } else {
+        response += "\"elapsed\":0,\"readings\":0,\"min\":0,\"max\":0,\"average\":0";
+    }
+
+    response += "}";
+    sendJsonResponse(client, response);
+}
+
+void WebServer::updateThreshold(WiFiClient& client, String params) {
+    // Parse threshold update parameters
+    // Expected format: -threshold?sensor=ultrasonic1&min=10&max=100
+
+    int sensorStart = params.indexOf("sensor=") + 7;
+    int sensorEnd = params.indexOf("&", sensorStart);
+    String sensor = params.substring(sensorStart, sensorEnd);
+
+    int minStart = params.indexOf("min=") + 4;
+    int minEnd = params.indexOf("&", minStart);
+    float minValue = params.substring(minStart, minEnd).toFloat();
+
+    int maxStart = params.indexOf("max=") + 4;
+    float maxValue = params.substring(maxStart).toFloat();
+
+    bool success = _safetyMonitor->updateSensorThresholds(sensor, minValue, maxValue);
+
+    if (success) {
+        String response = "{\"status\":\"updated\",\"sensor\":\"" + sensor +
+                         "\",\"min\":" + String(minValue) + ",\"max\":" + String(maxValue) + "}";
+        sendJsonResponse(client, response);
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Failed to update thresholds\"}");
+    }
+}
+
+void WebServer::getCalibrationData(WiFiClient& client) {
+    // Get all calibration data for export
+    String response = "{";
+    response += "\"ultrasonic1\":{";
+    response += "\"min\":" + String(_safetyMonitor->getUltrasonicMinThreshold(1)) + ",";
+    response += "\"max\":" + String(_safetyMonitor->getUltrasonicMaxThreshold(1)) + ",";
+    response += "\"baseline\":" + String(_safetyMonitor->getUltrasonicBaseline(1));
+    response += "},";
+    response += "\"ultrasonic2\":{";
+    response += "\"min\":" + String(_safetyMonitor->getUltrasonicMinThreshold(2)) + ",";
+    response += "\"max\":" + String(_safetyMonitor->getUltrasonicMaxThreshold(2)) + ",";
+    response += "\"baseline\":" + String(_safetyMonitor->getUltrasonicBaseline(2));
+    response += "},";
+    response += "\"pressure\":{";
+    response += "\"threshold\":" + String(_safetyMonitor->getPressureThreshold()) + ",";
+    response += "\"baseline\":" + String(_safetyMonitor->getPressureBaseline());
+    response += "},";
+    response += "\"timestamp\":" + String(millis());
+    response += "}";
+
+    sendJsonResponse(client, response);
+}
+
+void WebServer::sendCalibrationPage(WiFiClient& client) {
+    sendHttpHeader(client);
+
+    client.println("<!DOCTYPE html>");
+    client.println("<html lang='en'>");
+    client.println("<head>");
+    client.println("<meta charset='UTF-8'>");
+    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+    client.println("<title>Sensor Calibration - Wheelchair Swing</title>");
+    client.println("<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>");
+    client.println("<style>");
+    client.println("body { font-family: Arial; margin: 20px; background: #f5f5f5; }");
+    client.println(".container { max-width: 1000px; margin: 0 auto; }");
+    client.println(".card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
+    client.println(".wizard-step { display: none; }");
+    client.println(".wizard-step.active { display: block; }");
+    client.println(".progress-bar { background: #ddd; height: 20px; border-radius: 10px; margin: 20px 0; }");
+    client.println(".progress-fill { background: #4CAF50; height: 100%; border-radius: 10px; transition: width 0.3s; }");
+    client.println(".threshold-slider { width: 100%; margin: 10px 0; }");
+    client.println(".button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }");
+    client.println(".button:hover { background: #0056b3; }");
+    client.println(".button.success { background: #28a745; }");
+    client.println(".button.danger { background: #dc3545; }");
+    client.println(".sensor-reading { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; }");
+    client.println(".calibration-status { padding: 15px; border-radius: 5px; margin: 10px 0; }");
+    client.println(".status-ok { background: #d4edda; color: #155724; }");
+    client.println(".status-warning { background: #fff3cd; color: #856404; }");
+    client.println(".status-error { background: #f8d7da; color: #721c24; }");
+    client.println("</style>");
+    client.println("</head>");
+    client.println("<body>");
+
+    client.println(generateCalibrationWizardHTML());
+
+    client.println("<script>");
+    client.println("let calibrationChart;");
+    client.println("let isCalibrating = false;");
+    client.println("let currentStep = 1;");
+    client.println("let calibrationData = [];");
+
+    // JavaScript for calibration functionality
+    client.println("function initializeChart() {");
+    client.println("  const ctx = document.getElementById('calibrationChart').getContext('2d');");
+    client.println("  calibrationChart = new Chart(ctx, {");
+    client.println("    type: 'line',");
+    client.println("    data: {");
+    client.println("      labels: [],");
+    client.println("      datasets: [{");
+    client.println("        label: 'Sensor Reading',");
+    client.println("        data: [],");
+    client.println("        borderColor: '#007bff',");
+    client.println("        tension: 0.1");
+    client.println("      }]");
+    client.println("    },");
+    client.println("    options: { responsive: true, maintainAspectRatio: false }");
+    client.println("  });");
+    client.println("}");
+
+    client.println("function startCalibration(sensor) {");
+    client.println("  fetch('/api/calibrate-start?sensor=' + sensor)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'started') {");
+    client.println("        isCalibrating = true;");
+    client.println("        showWizardStep(2);");
+    client.println("        updateCalibrationStatus();");
+    client.println("      }");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function updateCalibrationStatus() {");
+    client.println("  if (!isCalibrating) return;");
+    client.println("  fetch('/api/calibrate-status')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      document.getElementById('readingCount').textContent = data.readings;");
+    client.println("      document.getElementById('minValue').textContent = data.min.toFixed(2);");
+    client.println("      document.getElementById('maxValue').textContent = data.max.toFixed(2);");
+    client.println("      document.getElementById('avgValue').textContent = data.average.toFixed(2);");
+    client.println("      updateProgress(data.readings);");
+    client.println("      if (data.readings >= 100) enableSaveButton();");
+    client.println("      setTimeout(updateCalibrationStatus, 1000);");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function updateProgress(readings) {");
+    client.println("  const progress = Math.min(readings / 100 * 100, 100);");
+    client.println("  document.getElementById('progressFill').style.width = progress + '%';");
+    client.println("}");
+
+    client.println("function enableSaveButton() {");
+    client.println("  document.getElementById('saveBtn').disabled = false;");
+    client.println("  document.getElementById('saveBtn').className = 'button success';");
+    client.println("}");
+
+    client.println("function saveCalibration() {");
+    client.println("  fetch('/api/calibrate-save')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'saved') {");
+    client.println("        isCalibrating = false;");
+    client.println("        showWizardStep(4);");
+    client.println("      }");
+    client.println("    });");
+    client.println("}");
+
+    client.println("function showWizardStep(step) {");
+    client.println("  document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));");
+    client.println("  document.getElementById('step' + step).classList.add('active');");
+    client.println("  currentStep = step;");
+    client.println("}");
+
+    client.println("document.addEventListener('DOMContentLoaded', function() {");
+    client.println("  initializeChart();");
+    client.println("});");
+
+    client.println("</script>");
+    client.println("</body></html>");
+}
+
+String WebServer::generateCalibrationWizardHTML() {
+    String html = "<div class='container'>";
+    html += "<h1>Sensor Calibration Wizard</h1>";
+    html += "<p><a href='/'>← Back to Home</a></p>";
+
+    // Step 1: Sensor Selection
+    html += "<div id='step1' class='wizard-step active card'>";
+    html += "<h2>Step 1: Select Sensor to Calibrate</h2>";
+    html += "<button class='button' onclick='startCalibration(\"ultrasonic1\")'>Calibrate Front Ultrasonic</button>";
+    html += "<button class='button' onclick='startCalibration(\"ultrasonic2\")'>Calibrate Rear Ultrasonic</button>";
+    html += "<button class='button' onclick='startCalibration(\"pressure\")'>Calibrate Pressure Sensor</button>";
+    html += "</div>";
+
+    // Step 2: Calibration in Progress
+    html += "<div id='step2' class='wizard-step card'>";
+    html += "<h2>Step 2: Calibration in Progress</h2>";
+    html += "<p>Collecting sensor readings for baseline calculation...</p>";
+    html += "<div class='progress-bar'><div id='progressFill' class='progress-fill' style='width: 0%'></div></div>";
+    html += "<div class='sensor-reading'>";
+    html += "Readings: <span id='readingCount'>0</span>/100<br>";
+    html += "Min: <span id='minValue'>0</span> | Max: <span id='maxValue'>0</span> | Avg: <span id='avgValue'>0</span>";
+    html += "</div>";
+    html += "<canvas id='calibrationChart' width='400' height='200'></canvas>";
+    html += "<button id='saveBtn' class='button' disabled onclick='saveCalibration()'>Save Calibration</button>";
+    html += "<button class='button danger' onclick='fetch(\"/api/calibrate-reset\").then(() => location.reload())'>Cancel</button>";
+    html += "</div>";
+
+    // Step 3: Threshold Adjustment
+    html += "<div id='step3' class='wizard-step card'>";
+    html += "<h2>Step 3: Adjust Thresholds</h2>";
+    html += "<p>Fine-tune detection thresholds based on your environment:</p>";
+    html += "<label>Warning Distance (cm): <input type='range' class='threshold-slider' min='10' max='100' value='30' id='warningSlider'></label>";
+    html += "<label>Critical Distance (cm): <input type='range' class='threshold-slider' min='5' max='50' value='10' id='criticalSlider'></label>";
+    html += "<button class='button' onclick='showWizardStep(4)'>Continue</button>";
+    html += "</div>";
+
+    // Step 4: Completion
+    html += "<div id='step4' class='wizard-step card'>";
+    html += "<h2>Calibration Complete!</h2>";
+    html += "<div class='calibration-status status-ok'>";
+    html += "✓ Sensor calibration saved successfully<br>";
+    html += "✓ Baseline values recorded<br>";
+    html += "✓ Thresholds updated";
+    html += "</div>";
+    html += "<button class='button' onclick='exportCalibration()'>Export Settings</button>";
+    html += "<button class='button' onclick='location.href=\"/\"'>Return to Dashboard</button>";
+    html += "</div>";
+
+    html += "</div>";
+    return html;
+}
+
+void WebServer::sendJsonResponse(WiFiClient& client, String jsonData) {
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: application/json");
+    client.println("Connection: close");
+    client.println();
+    client.println(jsonData);
 }
 
 void WebServer::sendHttpHeader(WiFiClient& client, const char* contentType) {
