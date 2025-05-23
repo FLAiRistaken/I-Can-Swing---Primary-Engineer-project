@@ -7,6 +7,15 @@
 #include "UltrasonicSensor.h"
 #include "PressureSensor.h"
 
+struct CalibrationData {
+    int readingCount;
+    float minValue;
+    float maxValue;
+    float average;
+    float baseline;
+    bool isValid;
+};
+
 class SafetyMonitor {
 public:
     enum SafetyStatus {
@@ -39,6 +48,21 @@ public:
     bool isUserPresent() const;
     const char* getStatusString() const;
     SafetyStatus getCurrentStatus() const;
+
+    // Calibration
+    void enterCalibrationMode(String sensorType);
+    void exitCalibrationMode();
+    bool saveCalibrationData();
+    void resetCalibrationData();
+    CalibrationData getCurrentCalibrationData();
+    bool updateSensorThresholds(String sensor, float minVal, float maxVal);
+
+    // Getter methods for calibration data
+    float getUltrasonicMinThreshold(int sensor);
+    float getUltrasonicMaxThreshold(int sensor);
+    float getUltrasonicBaseline(int sensor);
+    int getPressureThreshold();
+    float getPressureBaseline();
 
 private:
     StateMachine* _stateMachine;
@@ -95,4 +119,22 @@ private:
     // Dynamic thresolds
     float getEffectiveWarningDistance() const;
     float getEffectiveCriticalDistance() const;
+
+    // Calibration
+    bool _calibrationMode;
+    String _calibratingsensor;
+    CalibrationData _currentCalibration;
+    float _calibrationReadings[100];
+    int _calibrationIndex;
+    unsigned long _lastCalibrationReading;
+
+    // Calibration thresholds (stored values)
+    float _ultrasonic1MinThreshold;
+    float _ultrasonic1MaxThreshold;
+    float _ultrasonic1Baseline;
+    float _ultrasonic2MinThreshold;
+    float _ultrasonic2MaxThreshold;
+    float _ultrasonic2Baseline;
+    int _pressureThreshold;
+    float _pressureBaseline;
 };

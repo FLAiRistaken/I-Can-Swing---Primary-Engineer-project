@@ -400,6 +400,134 @@
             .system-overview { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
             .container { padding: 20px 15px; }
         }
+        /* Calibration-specific styles */
+        .calibration-wizard {
+            background: rgba(255,255,255,0.98);
+            border-radius: 20px;
+            padding: 30px;
+            margin: 20px 0;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+
+        .wizard-step {
+            display: none;
+        }
+
+        .wizard-step.active {
+            display: block;
+        }
+
+        .progress-bar {
+            background: #e2e8f0;
+            height: 10px;
+            border-radius: 5px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            height: 100%;
+            transition: width 0.3s ease;
+            border-radius: 5px;
+        }
+
+        .calibration-chart {
+            height: 300px;
+            margin: 20px 0;
+        }
+
+        .threshold-control {
+            margin: 15px 0;
+        }
+
+        .threshold-slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #ddd;
+            outline: none;
+            margin: 10px 0;
+        }
+
+        .calibration-reading {
+            font-size: 2rem;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 15px;
+        }
+
+        .sensor-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .calibration-status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border-left: 4px solid;
+        }
+
+        .status-in-progress {
+            background: #fff3cd;
+            border-color: #ffc107;
+            color: #856404;
+        }
+
+        .status-complete {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+
+        .export-button {
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px 5px;
+            transition: all 0.3s ease;
+        }
+
+        .export-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -446,11 +574,11 @@
                 <button class='nav-button' onclick='showPage("control")'>
                     <i class='fas fa-gamepad'></i>Control Panel
                 </button>
+                <button class='nav-button' onclick='showPage("calibration")'>
+                    <i class='fas fa-sliders-h'></i>Calibration
+                </button>
                 <button class='nav-button' onclick='showPage("status")'>
                     <i class='fas fa-chart-line'></i>Status Monitor
-                </button>
-                <button class='nav-button' onclick='showPage("config")'>
-                    <i class='fas fa-cog'></i>Configuration
                 </button>
                 <button class='nav-button' onclick='showPage("debug")'>
                     <i class='fas fa-bug'></i>Debug Tools
@@ -658,6 +786,140 @@
             </div>
         </div>
 
+        <!-- Calibration Page Content -->
+        <div id='calibration-content' class='page-content'>
+            <div class='calibration-wizard'>
+                <!-- Step 1: Sensor Selection -->
+                <div id='cal-step1' class='wizard-step active'>
+                    <h2><i class='fas fa-sliders-h'></i> Sensor Calibration Wizard</h2>
+                    <p>Select a sensor to calibrate. This process will record baseline values and optimize detection thresholds.</p>
+
+                    <div class='control-grid'>
+                        <button class='control-button primary' onclick='startCalibration("ultrasonic1")'>
+                            <i class='fas fa-radar'></i>Front Ultrasonic
+                        </button>
+                        <button class='control-button primary' onclick='startCalibration("ultrasonic2")'>
+                            <i class='fas fa-radar'></i>Rear Ultrasonic
+                        </button>
+                        <button class='control-button primary' onclick='startCalibration("pressure")'>
+                            <i class='fas fa-hand-point-down'></i>Pressure Sensor
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Calibration in Progress -->
+                <div id='cal-step2' class='wizard-step'>
+                    <h2><i class='fas fa-spinner fa-spin'></i> Calibration in Progress</h2>
+                    <div class='calibration-status status-in-progress'>
+                        <strong>Recording baseline data...</strong><br>
+                        Please ensure the sensor environment is stable and clear of obstacles.
+                    </div>
+
+                    <div class='progress-bar'>
+                        <div id='cal-progress-fill' class='progress-fill' style='width: 0%'></div>
+                    </div>
+
+                    <div class='calibration-reading'>
+                        <span id='cal-current-reading'>0.0</span> <span id='cal-unit'>cm</span>
+                    </div>
+
+                    <div class='sensor-stats'>
+                        <div class='stat-card'>
+                            <div class='stat-value' id='cal-reading-count'>0</div>
+                            <div class='stat-label'>Readings</div>
+                        </div>
+                        <div class='stat-card'>
+                            <div class='stat-value' id='cal-min-value'>0.0</div>
+                            <div class='stat-label'>Minimum</div>
+                        </div>
+                        <div class='stat-card'>
+                            <div class='stat-value' id='cal-max-value'>0.0</div>
+                            <div class='stat-label'>Maximum</div>
+                        </div>
+                        <div class='stat-card'>
+                            <div class='stat-value' id='cal-avg-value'>0.0</div>
+                            <div class='stat-label'>Average</div>
+                        </div>
+                    </div>
+
+                    <div class='calibration-chart'>
+                        <canvas id='calibrationChart'></canvas>
+                    </div>
+
+                    <div class='control-grid'>
+                        <button id='cal-save-btn' class='control-button success' disabled onclick='saveCalibration()'>
+                            <i class='fas fa-save'></i>Save Calibration
+                        </button>
+                        <button class='control-button warning' onclick='cancelCalibration()'>
+                            <i class='fas fa-times'></i>Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Threshold Adjustment -->
+                <div id='cal-step3' class='wizard-step'>
+                    <h2><i class='fas fa-cog'></i> Adjust Thresholds</h2>
+                    <p>Fine-tune detection thresholds based on your calibration results:</p>
+
+                    <div class='threshold-control'>
+                        <label><strong>Warning Distance:</strong> <span id='warning-value'>30</span> cm</label>
+                        <input type='range' class='threshold-slider' min='10' max='100' value='30'
+                               id='warning-slider' oninput='updateThresholdDisplay("warning", this.value)'>
+                    </div>
+
+                    <div class='threshold-control'>
+                        <label><strong>Critical Distance:</strong> <span id='critical-value'>10</span> cm</label>
+                        <input type='range' class='threshold-slider' min='5' max='50' value='10'
+                               id='critical-slider' oninput='updateThresholdDisplay("critical", this.value)'>
+                    </div>
+
+                    <div class='threshold-control'>
+                        <label><strong>Detection Sensitivity:</strong> <span id='sensitivity-value'>Medium</span></label>
+                        <select id='sensitivity-select' onchange='updateSensitivity()'>
+                            <option value='low'>Low</option>
+                            <option value='medium' selected>Medium</option>
+                            <option value='high'>High</option>
+                        </select>
+                    </div>
+
+                    <div class='control-grid'>
+                        <button class='control-button success' onclick='applyThresholds()'>
+                            <i class='fas fa-check'></i>Apply Settings
+                        </button>
+                        <button class='control-button primary' onclick='showCalStep(4)'>
+                            <i class='fas fa-arrow-right'></i>Continue
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 4: Completion -->
+                <div id='cal-step4' class='wizard-step'>
+                    <h2><i class='fas fa-check-circle'></i> Calibration Complete!</h2>
+                    <div class='calibration-status status-complete'>
+                        <strong>✓ Calibration completed successfully</strong><br>
+                        • Baseline values recorded: <span id='final-baseline'>0.0</span><br>
+                        • Thresholds optimized for your environment<br>
+                        • Settings saved to system configuration
+                    </div>
+
+                    <div class='control-grid'>
+                        <button class='export-button' onclick='exportCalibration()'>
+                            <i class='fas fa-download'></i>Export Settings
+                        </button>
+                        <button class='control-button primary' onclick='runValidationTest()'>
+                            <i class='fas fa-vial'></i>Validation Test
+                        </button>
+                        <button class='control-button' onclick='resetCalibrationWizard()'>
+                            <i class='fas fa-redo'></i>Calibrate Another
+                        </button>
+                        <button class='control-button success' onclick='showPage("home")'>
+                            <i class='fas fa-home'></i>Return to Dashboard
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Debug Page Content -->
         <div id='debug-content' class='page-content'>
             <div class='card'>
@@ -706,6 +968,14 @@
         let sensorChart;
         let countdown = 30;
         let sessionTime = 0;
+
+        // Calibration system variables
+        let calibrationChart;
+        let isCalibrating = false;
+        let currentCalibratingSensor = '';
+        let calibrationData = [];
+        let calibrationReadings = [];
+        let calibrationTimer;
 
         // Initialize the demo
         document.addEventListener('DOMContentLoaded', function() {
@@ -979,6 +1249,289 @@
             showNotification('Logs exported to downloads folder', 'success');
             addLogEntry('info', 'System logs exported');
         }
+
+        // Initialize calibration chart
+        function initializeCalibrationChart() {
+            const ctx = document.getElementById('calibrationChart');
+            if (!ctx) return;
+
+            calibrationChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Sensor Reading',
+                        data: [],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 2
+                    }, {
+                        label: 'Average',
+                        data: [],
+                        borderColor: '#28a745',
+                        borderDash: [5, 5],
+                        tension: 0,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Sensor Value'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Reading Number'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Start calibration process
+        function startCalibration(sensorType) {
+            currentCalibratingSensor = sensorType;
+            isCalibrating = true;
+            calibrationReadings = [];
+
+            showCalStep(2);
+            resetCalibrationStats();
+
+            // Set appropriate unit
+            const unit = sensorType.includes('ultrasonic') ? 'cm' : 'units';
+            document.getElementById('cal-unit').textContent = unit;
+
+            showNotification(`Starting ${sensorType} calibration...`, 'info');
+
+            // Start simulated calibration process
+            calibrationTimer = setInterval(simulateCalibrationReading, 200);
+        }
+
+        // Simulate calibration readings
+        function simulateCalibrationReading() {
+            if (calibrationReadings.length >= 100) {
+                clearInterval(calibrationTimer);
+                enableSaveCalibration();
+                return;
+            }
+
+            // Generate realistic sensor data with noise
+            let baseValue, noise;
+            if (currentCalibratingSensor.includes('ultrasonic')) {
+                baseValue = 45 + Math.sin(calibrationReadings.length * 0.1) * 5; // Simulate environmental variation
+                noise = (Math.random() - 0.5) * 4; // ±2cm noise
+            } else {
+                baseValue = 650; // Pressure sensor
+                noise = (Math.random() - 0.5) * 50; // ±25 units noise
+            }
+
+            const reading = Math.max(0, baseValue + noise);
+            calibrationReadings.push(reading);
+
+            updateCalibrationStats(reading);
+            updateCalibrationChart(reading);
+            updateCalibrationProgress();
+        }
+
+        // Update calibration statistics
+        function updateCalibrationStats(newReading) {
+            const count = calibrationReadings.length;
+            const min = Math.min(...calibrationReadings);
+            const max = Math.max(...calibrationReadings);
+            const avg = calibrationReadings.reduce((a, b) => a + b, 0) / count;
+
+            document.getElementById('cal-current-reading').textContent = newReading.toFixed(1);
+            document.getElementById('cal-reading-count').textContent = count;
+            document.getElementById('cal-min-value').textContent = min.toFixed(1);
+            document.getElementById('cal-max-value').textContent = max.toFixed(1);
+            document.getElementById('cal-avg-value').textContent = avg.toFixed(1);
+        }
+
+        // Update calibration chart
+        function updateCalibrationChart(reading) {
+            if (!calibrationChart) return;
+
+            const count = calibrationReadings.length;
+            const avg = calibrationReadings.reduce((a, b) => a + b, 0) / count;
+
+            calibrationChart.data.labels.push(count);
+            calibrationChart.data.datasets[0].data.push(reading);
+            calibrationChart.data.datasets[1].data.push(avg);
+
+            // Keep only last 50 points for display
+            if (calibrationChart.data.labels.length > 50) {
+                calibrationChart.data.labels.shift();
+                calibrationChart.data.datasets[0].data.shift();
+                calibrationChart.data.datasets[1].data.shift();
+            }
+
+            calibrationChart.update('none');
+        }
+
+        // Update calibration progress
+        function updateCalibrationProgress() {
+            const progress = Math.min((calibrationReadings.length / 100) * 100, 100);
+            document.getElementById('cal-progress-fill').style.width = progress + '%';
+        }
+
+        // Enable save calibration button
+        function enableSaveCalibration() {
+            const saveBtn = document.getElementById('cal-save-btn');
+            saveBtn.disabled = false;
+            saveBtn.style.opacity = '1';
+            showNotification('100 readings collected! Calibration ready to save.', 'success');
+        }
+
+        // Save calibration
+        function saveCalibration() {
+            if (calibrationReadings.length < 50) {
+                showNotification('Need at least 50 readings to save calibration', 'error');
+                return;
+            }
+
+            const avg = calibrationReadings.reduce((a, b) => a + b, 0) / calibrationReadings.length;
+
+            // Store calibration results
+            calibrationData[currentCalibratingSensor] = {
+                baseline: avg,
+                min: Math.min(...calibrationReadings),
+                max: Math.max(...calibrationReadings),
+                readingCount: calibrationReadings.length,
+                timestamp: new Date().toISOString()
+            };
+
+            document.getElementById('final-baseline').textContent = avg.toFixed(2);
+
+            isCalibrating = false;
+            showCalStep(3);
+            showNotification('Calibration data saved successfully!', 'success');
+        }
+
+        // Cancel calibration
+        function cancelCalibration() {
+            if (calibrationTimer) {
+                clearInterval(calibrationTimer);
+            }
+            isCalibrating = false;
+            showCalStep(1);
+            showNotification('Calibration cancelled', 'warning');
+        }
+
+        // Show calibration step
+        function showCalStep(step) {
+            document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));
+            document.getElementById('cal-step' + step).classList.add('active');
+        }
+
+        // Reset calibration statistics
+        function resetCalibrationStats() {
+            document.getElementById('cal-current-reading').textContent = '0.0';
+            document.getElementById('cal-reading-count').textContent = '0';
+            document.getElementById('cal-min-value').textContent = '0.0';
+            document.getElementById('cal-max-value').textContent = '0.0';
+            document.getElementById('cal-avg-value').textContent = '0.0';
+            document.getElementById('cal-progress-fill').style.width = '0%';
+
+            if (calibrationChart) {
+                calibrationChart.data.labels = [];
+                calibrationChart.data.datasets[0].data = [];
+                calibrationChart.data.datasets[1].data = [];
+                calibrationChart.update();
+            }
+        }
+
+        // Update threshold display
+        function updateThresholdDisplay(type, value) {
+            document.getElementById(type + '-value').textContent = value;
+        }
+
+        // Update sensitivity
+        function updateSensitivity() {
+            const sensitivity = document.getElementById('sensitivity-select').value;
+            document.getElementById('sensitivity-value').textContent =
+                sensitivity.charAt(0).toUpperCase() + sensitivity.slice(1);
+        }
+
+        // Apply thresholds
+        function applyThresholds() {
+            const warningThreshold = document.getElementById('warning-slider').value;
+            const criticalThreshold = document.getElementById('critical-slider').value;
+            const sensitivity = document.getElementById('sensitivity-select').value;
+
+            showNotification(`Thresholds updated: Warning=${warningThreshold}cm, Critical=${criticalThreshold}cm`, 'success');
+        }
+
+        // Export calibration data
+        function exportCalibration() {
+            const exportData = {
+                calibrationData: calibrationData,
+                thresholds: {
+                    warning: document.getElementById('warning-slider').value,
+                    critical: document.getElementById('critical-slider').value,
+                    sensitivity: document.getElementById('sensitivity-select').value
+                },
+                exportDate: new Date().toISOString(),
+                systemInfo: {
+                    version: '2.0',
+                    device: 'Wheelchair Swing Prototype'
+                }
+            };
+
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = 'wheelchair-swing-calibration-' + new Date().toISOString().split('T')[0] + '.json';
+            link.click();
+
+            showNotification('Calibration settings exported successfully!', 'success');
+        }
+
+        // Run validation test
+        function runValidationTest() {
+            showNotification('Running validation test...', 'info');
+
+            setTimeout(() => {
+                const testResults = {
+                    accuracy: (95 + Math.random() * 4).toFixed(1),
+                    repeatability: (98 + Math.random() * 2).toFixed(1),
+                    stability: (96 + Math.random() * 3).toFixed(1)
+                };
+
+                showNotification(`Validation complete: Accuracy=${testResults.accuracy}%, Repeatability=${testResults.repeatability}%, Stability=${testResults.stability}%`, 'success');
+            }, 2000);
+        }
+
+        // Reset calibration wizard
+        function resetCalibrationWizard() {
+            showCalStep(1);
+            resetCalibrationStats();
+            if (calibrationTimer) {
+                clearInterval(calibrationTimer);
+            }
+            isCalibrating = false;
+        }
+
+        // Initialize calibration system
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCalibrationChart();
+        });
 
         // Start real-time data simulation
         setInterval(simulateRealtimeData, 5000);
