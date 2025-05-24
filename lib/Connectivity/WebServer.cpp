@@ -2,6 +2,7 @@
 #include "WebServer.h"
 #include "RuntimeConfig.h"
 
+// Update constructor initialization list in WebServer.cpp:
 WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
     : _server(80), _stateMachine(stateMachine), _safetyMonitor(safetyMonitor),
       _calibrationActive(false), _calibrationStartTime(0), _calibrationStep(0),
@@ -10,7 +11,11 @@ WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
       _rightMotorPosition(0), _motorTestSafetyCheck(true), _safetyTestActive(false),
       _currentSafetyTest(""), _safetyTestStartTime(0), _safetyTestEndTime(0),
       _safetyTestStep(0), _safetyTestThreshold(0.0f), _safetyOverrideEnabled(false),
-      _safetyOverrideTimeout(0), _safetyLogIndex(0) {}
+      _safetyOverrideTimeout(0), _safetyLogIndex(0),
+      _demoActive(false), _currentDemo(RuntimeConfig::DEMO_NONE),
+      _demoStartTime(0), _demoStep(0), _demoStepStartTime(0),
+      _demoSequenceActive(false) {}
+
 
 void WebServer::begin(int port) {
     _server.begin();
@@ -47,6 +52,14 @@ void WebServer::handleClient() {
             sendConfigPage(client);
         } else if (request.indexOf("GET /debug") >= 0) {
             sendDebugPage(client);
+        } else if (request.indexOf("GET /demo") >= 0) {
+            sendDemoPage(client);
+        } else if (request.indexOf("GET /api/demo") >= 0) {
+            // Extract demo command
+            int apiStart = request.indexOf("/api/demo") + 9;
+            int apiEnd = request.indexOf(" ", apiStart);
+            String command = request.substring(apiStart, apiEnd);
+            handleDemoAPI(client, command);
         } else if (request.indexOf("GET /safety-test") >= 0) {
             sendSafetyTestPage(client);
         } else if (request.indexOf("GET /api/safety-test") >= 0) {
@@ -2041,6 +2054,453 @@ void WebServer::sendControlPage(WiFiClient& client) {
     client.println("</body></html>");
 }
 
+void WebServer::sendDemoPage(WiFiClient& client) {
+    sendHttpHeader(client);
+
+    client.println("<!DOCTYPE html>");
+    client.println("<html lang='en'>");
+    client.println("<head>");
+    client.println("<meta charset='UTF-8'>");
+    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
+    client.println("<title>Demo Control Center - Wheelchair Swing</title>");
+    client.println("<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>");
+    client.println("<style>");
+
+    // CSS Styling
+    client.println("body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #1a202c; }");
+    client.println(".container { max-width: 1200px; margin: 0 auto; }");
+    client.println(".header { text-align: center; color: white; margin-bottom: 30px; }");
+    client.println(".card { background: rgba(255,255,255,0.95); padding: 25px; margin: 20px 0; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); backdrop-filter: blur(10px); }");
+
+    // Demo Cards Grid
+    client.println(".demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; margin: 30px 0; }");
+    client.println(".demo-card { background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.7)); border-radius: 20px; padding: 25px; text-align: center; transition: all 0.3s ease; border: 2px solid transparent; cursor: pointer; position: relative; overflow: hidden; }");
+    client.println(".demo-card:hover { transform: translateY(-5px); box-shadow: 0 15px 40px rgba(0,0,0,0.3); border-color: #667eea; }");
+    client.println(".demo-card.active { border-color: #28a745; background: linear-gradient(135deg, rgba(40, 167, 69, 0.1), rgba(40, 167, 69, 0.05)); }");
+    client.println(".demo-card.disabled { opacity: 0.6; cursor: not-allowed; }");
+
+    // Demo Card Content
+    client.println(".demo-icon { font-size: 3rem; margin-bottom: 15px; display: block; }");
+    client.println(".demo-title { font-size: 1.4rem; font-weight: bold; margin-bottom: 10px; color: #2d3748; }");
+    client.println(".demo-description { color: #4a5568; margin-bottom: 15px; line-height: 1.5; }");
+    client.println(".demo-specs { background: #f7fafc; padding: 10px; border-radius: 8px; margin: 15px 0; font-size: 0.9rem; }");
+    client.println(".demo-duration { color: #667eea; font-weight: bold; }");
+
+    // Control Buttons
+    client.println(".demo-controls { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }");
+    client.println(".btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s ease; }");
+    client.println(".btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }");
+    client.println(".btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }");
+    client.println(".btn-success { background: linear-gradient(135deg, #48bb78, #38a169); color: white; }");
+    client.println(".btn-danger { background: linear-gradient(135deg, #f56565, #e53e3e); color: white; }");
+    client.println(".btn-secondary { background: #e2e8f0; color: #4a5568; }");
+    client.println(".btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }");
+
+    // Status Panel
+    client.println(".status-panel { background: #2d3748; color: white; padding: 20px; border-radius: 15px; margin: 20px 0; }");
+    client.println(".status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }");
+    client.println(".status-item { text-align: center; }");
+    client.println(".status-value { font-size: 2rem; font-weight: bold; color: #667eea; }");
+    client.println(".status-label { font-size: 0.9rem; opacity: 0.8; }");
+
+    // Progress Bar
+    client.println(".progress-container { margin: 20px 0; }");
+    client.println(".progress-bar { background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; }");
+    client.println(".progress-fill { background: linear-gradient(135deg, #667eea, #764ba2); height: 100%; width: 0%; transition: width 0.3s ease; border-radius: 4px; }");
+    client.println(".progress-text { text-align: center; margin-top: 10px; font-weight: 600; color: #4a5568; }");
+
+    // Timeline
+    client.println(".timeline { margin: 30px 0; }");
+    client.println(".timeline-item { display: flex; align-items: center; margin: 15px 0; padding: 15px; background: rgba(255,255,255,0.7); border-radius: 10px; }");
+    client.println(".timeline-item.active { background: rgba(102, 126, 234, 0.1); border-left: 4px solid #667eea; }");
+    client.println(".timeline-item.completed { background: rgba(72, 187, 120, 0.1); border-left: 4px solid #48bb78; }");
+    client.println(".timeline-step { background: #667eea; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 15px; }");
+    client.println(".timeline-content { flex: 1; }");
+    client.println(".timeline-title { font-weight: bold; margin-bottom: 5px; }");
+    client.println(".timeline-description { color: #4a5568; font-size: 0.9rem; }");
+
+    // Responsive Design
+    client.println("@media (max-width: 768px) { .demo-grid { grid-template-columns: 1fr; } .status-grid { grid-template-columns: repeat(2, 1fr); } }");
+
+    client.println("</style>");
+    client.println("</head>");
+    client.println("<body>");
+
+    client.println(generateDemoHTML());
+
+    // JavaScript for demo functionality
+    client.println("<script>");
+
+    // Demo system variables
+    client.println("let currentDemo = -1;");
+    client.println("let demoActive = false;");
+    client.println("let demoProgress = 0;");
+    client.println("let demoStep = 0;");
+    client.println("let statusUpdateInterval;");
+
+    // Demo configurations
+    client.println("const demoConfigs = {");
+    client.println("  0: { name: 'Gentle Demo', duration: 120, steps: ['Introduction', 'Slow start', 'Speed demo', 'Door operation', 'Conclusion'] },");
+    client.println("  1: { name: 'Full Feature Demo', duration: 300, steps: ['System startup', 'Voice commands', 'Full speed', 'Safety systems', 'Advanced features', 'Conclusion'] },");
+    client.println("  2: { name: 'Safety Demo', duration: 180, steps: ['Obstacle detection', 'Emergency stop', 'User departure', 'Motor protection'] },");
+    client.println("  3: { name: 'Voice Control Demo', duration: 240, steps: ['Voice intro', 'Start commands', 'Speed control', 'Door control', 'Stop commands', 'Accuracy test'] }");
+    client.println("};");
+
+    // Start demo function
+    client.println("function startDemo(mode) {");
+    client.println("  if (demoActive) {");
+    client.println("    alert('Please stop the current demo first');");
+    client.println("    return;");
+    client.println("  }");
+    client.println("  ");
+    client.println("  fetch(`/api/demo-start?mode=${mode}`)");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'started') {");
+    client.println("        currentDemo = mode;");
+    client.println("        demoActive = true;");
+    client.println("        demoProgress = 0;");
+    client.println("        demoStep = 0;");
+    client.println("        updateDemoUI();");
+    client.println("        startStatusUpdates();");
+    client.println("        showNotification(`${demoConfigs[mode].name} started successfully!`, 'success');");
+    client.println("      } else {");
+    client.println("        showNotification('Failed to start demo: ' + (data.error || 'Unknown error'), 'error');");
+    client.println("      }");
+    client.println("    })");
+    client.println("    .catch(error => showNotification('Network error: ' + error.message, 'error'));");
+    client.println("}");
+
+    // Stop demo function
+    client.println("function stopDemo() {");
+    client.println("  if (!demoActive) return;");
+    client.println("  ");
+    client.println("  fetch('/api/demo-stop')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.status === 'stopped') {");
+    client.println("        demoActive = false;");
+    client.println("        currentDemo = -1;");
+    client.println("        updateDemoUI();");
+    client.println("        stopStatusUpdates();");
+    client.println("        showNotification('Demo stopped successfully', 'info');");
+    client.println("      }");
+    client.println("    })");
+    client.println("    .catch(error => showNotification('Error stopping demo: ' + error.message, 'error'));");
+    client.println("}");
+
+    // Update demo UI
+    client.println("function updateDemoUI() {");
+    client.println("  // Update demo cards");
+    client.println("  document.querySelectorAll('.demo-card').forEach((card, index) => {");
+    client.println("    card.classList.remove('active', 'disabled');");
+    client.println("    if (demoActive) {");
+    client.println("      if (index === currentDemo) {");
+    client.println("        card.classList.add('active');");
+    client.println("      } else {");
+    client.println("        card.classList.add('disabled');");
+    client.println("      }");
+    client.println("    }");
+    client.println("  });");
+    client.println("  ");
+    client.println("  // Update control buttons");
+    client.println("  document.querySelectorAll('.start-btn').forEach((btn, index) => {");
+    client.println("    btn.disabled = demoActive && index !== currentDemo;");
+    client.println("    btn.textContent = (demoActive && index === currentDemo) ? 'Running...' : 'Start Demo';");
+    client.println("  });");
+    client.println("  ");
+    client.println("  document.getElementById('stopAllBtn').disabled = !demoActive;");
+    client.println("  ");
+    client.println("  // Show/hide progress panel");
+    client.println("  const progressPanel = document.getElementById('progressPanel');");
+    client.println("  progressPanel.style.display = demoActive ? 'block' : 'none';");
+    client.println("}");
+
+    // Start status updates
+    client.println("function startStatusUpdates() {");
+    client.println("  statusUpdateInterval = setInterval(updateDemoStatus, 2000);");
+    client.println("}");
+
+    // Stop status updates
+    client.println("function stopStatusUpdates() {");
+    client.println("  if (statusUpdateInterval) {");
+    client.println("    clearInterval(statusUpdateInterval);");
+    client.println("    statusUpdateInterval = null;");
+    client.println("  }");
+    client.println("}");
+
+    // Update demo status
+    client.println("function updateDemoStatus() {");
+    client.println("  if (!demoActive) return;");
+    client.println("  ");
+    client.println("  fetch('/api/demo-status')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (!data.active) {");
+    client.println("        // Demo completed automatically");
+    client.println("        demoActive = false;");
+    client.println("        currentDemo = -1;");
+    client.println("        updateDemoUI();");
+    client.println("        stopStatusUpdates();");
+    client.println("        showNotification('Demo completed successfully!', 'success');");
+    client.println("        return;");
+    client.println("      }");
+    client.println("      ");
+    client.println("      // Update progress");
+    client.println("      demoProgress = data.progress || 0;");
+    client.println("      demoStep = data.step || 0;");
+    client.println("      ");
+    client.println("      // Update progress bar");
+    client.println("      document.getElementById('progressFill').style.width = demoProgress + '%';");
+    client.println("      document.getElementById('progressText').textContent = `${Math.round(demoProgress)}% Complete - Step ${demoStep}`;");
+    client.println("      ");
+    client.println("      // Update status values");
+    client.println("      document.getElementById('statusDemo').textContent = demoConfigs[currentDemo]?.name || 'Unknown';");
+    client.println("      document.getElementById('statusStep').textContent = demoStep;");
+    client.println("      document.getElementById('statusElapsed').textContent = Math.floor(data.elapsed / 60) + ':' + String(data.elapsed % 60).padStart(2, '0');");
+    client.println("      document.getElementById('statusRemaining').textContent = Math.floor((data.duration - data.elapsed) / 60) + ':' + String((data.duration - data.elapsed) % 60).padStart(2, '0');");
+    client.println("      ");
+    client.println("      // Update timeline");
+    client.println("      updateTimeline(currentDemo, demoStep);");
+    client.println("    })");
+    client.println("    .catch(error => console.error('Status update error:', error));");
+    client.println("}");
+
+    // Update timeline
+    client.println("function updateTimeline(demoMode, currentStep) {");
+    client.println("  const steps = demoConfigs[demoMode]?.steps || [];");
+    client.println("  const timelineContainer = document.getElementById('timeline');");
+    client.println("  timelineContainer.innerHTML = '';");
+    client.println("  ");
+    client.println("  steps.forEach((stepName, index) => {");
+    client.println("    const item = document.createElement('div');");
+    client.println("    item.className = 'timeline-item';");
+    client.println("    ");
+    client.println("    if (index < currentStep) item.classList.add('completed');");
+    client.println("    if (index === currentStep) item.classList.add('active');");
+    client.println("    ");
+    client.println("    item.innerHTML = `");
+    client.println("      <div class='timeline-step'>${index + 1}</div>");
+    client.println("      <div class='timeline-content'>");
+    client.println("        <div class='timeline-title'>${stepName}</div>");
+    client.println("        <div class='timeline-description'>${getStepDescription(demoMode, index)}</div>");
+    client.println("      </div>");
+    client.println("    `;");
+    client.println("    ");
+    client.println("    timelineContainer.appendChild(item);");
+    client.println("  });");
+    client.println("}");
+
+    // Get step description
+    client.println("function getStepDescription(demoMode, stepIndex) {");
+    client.println("  const descriptions = {");
+    client.println("    0: ['System introduction and safety checks', 'Gentle swing motion start', 'Speed adjustment demonstration', 'Door operation showcase', 'Demo conclusion'],");
+    client.println("    1: ['Complete system initialization', 'Voice command demonstrations', 'High-speed operation showcase', 'Safety system demonstrations', 'Advanced feature showcase', 'Comprehensive demo conclusion'],");
+    client.println("    2: ['Front and rear obstacle detection', 'Emergency stop procedures', 'User departure safety', 'Motor protection systems'],");
+    client.println("    3: ['Voice recognition introduction', 'Start/Go commands', 'Speed control commands', 'Door control commands', 'Stop commands', 'Recognition accuracy display']");
+    client.println("  };");
+    client.println("  return descriptions[demoMode]?.[stepIndex] || 'Demo step in progress';");
+    client.println("}");
+
+    // Show notification
+    client.println("function showNotification(message, type) {");
+    client.println("  const notification = document.createElement('div');");
+    client.println("  notification.style.cssText = `");
+    client.println("    position: fixed; top: 20px; right: 20px; z-index: 1000;");
+    client.println("    padding: 15px 20px; border-radius: 8px; color: white;");
+    client.println("    font-weight: 600; max-width: 400px; transform: translateX(400px);");
+    client.println("    transition: transform 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.3);");
+    client.println("  `;");
+    client.println("  ");
+    client.println("  switch(type) {");
+    client.println("    case 'success': notification.style.background = 'linear-gradient(135deg, #48bb78, #38a169)'; break;");
+    client.println("    case 'error': notification.style.background = 'linear-gradient(135deg, #f56565, #e53e3e)'; break;");
+    client.println("    case 'info': notification.style.background = 'linear-gradient(135deg, #4299e1, #3182ce)'; break;");
+    client.println("    default: notification.style.background = 'linear-gradient(135deg, #667eea, #764ba2)'; break;");
+    client.println("  }");
+    client.println("  ");
+    client.println("  notification.textContent = message;");
+    client.println("  document.body.appendChild(notification);");
+    client.println("  ");
+    client.println("  setTimeout(() => notification.style.transform = 'translateX(0)', 100);");
+    client.println("  setTimeout(() => {");
+    client.println("    notification.style.transform = 'translateX(400px)';");
+    client.println("    setTimeout(() => document.body.removeChild(notification), 300);");
+    client.println("  }, 4000);");
+    client.println("}");
+
+    // Initialize on page load
+    client.println("document.addEventListener('DOMContentLoaded', function() {");
+    client.println("  updateDemoUI();");
+    client.println("  ");
+    client.println("  // Check if demo is already running");
+    client.println("  fetch('/api/demo-status')");
+    client.println("    .then(response => response.json())");
+    client.println("    .then(data => {");
+    client.println("      if (data.active) {");
+    client.println("        currentDemo = data.mode;");
+    client.println("        demoActive = true;");
+    client.println("        demoProgress = data.progress || 0;");
+    client.println("        demoStep = data.step || 0;");
+    client.println("        updateDemoUI();");
+    client.println("        startStatusUpdates();");
+    client.println("      }");
+    client.println("    })");
+    client.println("    .catch(error => console.error('Initial status check failed:', error));");
+    client.println("});");
+
+    client.println("</script>");
+    client.println("</body>");
+    client.println("</html>");
+}
+
+String WebServer::generateDemoHTML() {
+    String html = "<div class='container'>";
+
+    // Header
+    html += "<div class='header'>";
+    html += "<h1><i class='🎭'></i> Demo Control Center</h1>";
+    html += "<p>Professional demonstration modes for wheelchair swing system</p>";
+    html += "<p><a href='/' style='color: white; text-decoration: underline;'>← Back to Home</a></p>";
+    html += "</div>";
+
+    // Demo Mode Cards
+    html += "<div class='demo-grid'>";
+
+    // Gentle Demo Card
+    html += "<div class='demo-card' id='demo-0'>";
+    html += "<span class='demo-icon'>🌱</span>";
+    html += "<div class='demo-title'>Gentle Demo</div>";
+    html += "<div class='demo-description'>Safe introduction perfect for first-time users and visitors. Showcases basic functionality with conservative settings.</div>";
+    html += "<div class='demo-specs'>";
+    html += "<strong>Settings:</strong> 300 RPM max, 50cm safety zone<br>";
+    html += "<strong>Duration:</strong> <span class='demo-duration'>2 minutes</span><br>";
+    html += "<strong>Features:</strong> Basic operation, safety intro";
+    html += "</div>";
+    html += "<div class='demo-controls'>";
+    html += "<button class='btn btn-primary start-btn' onclick='startDemo(0)'>Start Demo</button>";
+    html += "</div>";
+    html += "</div>";
+
+    // Full Feature Demo Card
+    html += "<div class='demo-card' id='demo-1'>";
+    html += "<span class='demo-icon'>🚀</span>";
+    html += "<div class='demo-title'>Full Feature Demo</div>";
+    html += "<div class='demo-description'>Comprehensive showcase of all system capabilities. Perfect for technical audiences and stakeholder presentations.</div>";
+    html += "<div class='demo-specs'>";
+    html += "<strong>Settings:</strong> 600 RPM max, 30cm safety zone<br>";
+    html += "<strong>Duration:</strong> <span class='demo-duration'>5 minutes</span><br>";
+    html += "<strong>Features:</strong> All systems, voice control, safety";
+    html += "</div>";
+    html += "<div class='demo-controls'>";
+    html += "<button class='btn btn-primary start-btn' onclick='startDemo(1)'>Start Demo</button>";
+    html += "</div>";
+    html += "</div>";
+
+    // Safety Demo Card
+    html += "<div class='demo-card' id='demo-2'>";
+    html += "<span class='demo-icon'>🛡️</span>";
+    html += "<div class='demo-title'>Safety Demo</div>";
+    html += "<div class='demo-description'>Focused demonstration of safety systems and emergency procedures. Shows obstacle detection and response protocols.</div>";
+    html += "<div class='demo-specs'>";
+    html += "<strong>Settings:</strong> 400 RPM max, 40cm safety zone<br>";
+    html += "<strong>Duration:</strong> <span class='demo-duration'>3 minutes</span><br>";
+    html += "<strong>Features:</strong> Safety systems, emergency procedures";
+    html += "</div>";
+    html += "<div class='demo-controls'>";
+    html += "<button class='btn btn-primary start-btn' onclick='startDemo(2)'>Start Demo</button>";
+    html += "</div>";
+    html += "</div>";
+
+    // Voice Control Demo Card
+    html += "<div class='demo-card' id='demo-3'>";
+    html += "<span class='demo-icon'>🎤</span>";
+    html += "<div class='demo-title'>Voice Control Demo</div>";
+    html += "<div class='demo-description'>Highlights voice recognition capabilities and hands-free operation. Demonstrates all voice commands and accuracy.</div>";
+    html += "<div class='demo-specs'>";
+    html += "<strong>Settings:</strong> 450 RPM max, 35cm safety zone<br>";
+    html += "<strong>Duration:</strong> <span class='demo-duration'>4 minutes</span><br>";
+    html += "<strong>Features:</strong> Voice commands, audio feedback";
+    html += "</div>";
+    html += "<div class='demo-controls'>";
+    html += "<button class='btn btn-primary start-btn' onclick='startDemo(3)'>Start Demo</button>";
+    html += "</div>";
+    html += "</div>";
+
+    html += "</div>"; // End demo-grid
+
+    // Global Demo Controls
+    html += "<div class='card'>";
+    html += "<h3>Demo Control</h3>";
+    html += "<div style='text-align: center; margin: 20px 0;'>";
+    html += "<button class='btn btn-danger' id='stopAllBtn' onclick='stopDemo()' disabled>";
+    html += "<i class='⏹️'></i> Stop Current Demo";
+    html += "</button>";
+    html += "</div>";
+    html += "</div>";
+
+    // Progress Panel (hidden by default)
+    html += "<div class='card' id='progressPanel' style='display: none;'>";
+    html += "<h3>Demo Progress</h3>";
+    html += "<div class='progress-container'>";
+    html += "<div class='progress-bar'>";
+    html += "<div class='progress-fill' id='progressFill'></div>";
+    html += "</div>";
+    html += "<div class='progress-text' id='progressText'>Demo not started</div>";
+    html += "</div>";
+    html += "</div>";
+
+    // Status Panel
+    html += "<div class='status-panel'>";
+    html += "<h3 style='margin-top: 0; color: white; text-align: center;'>Live Demo Status</h3>";
+    html += "<div class='status-grid'>";
+    html += "<div class='status-item'>";
+    html += "<div class='status-value' id='statusDemo'>None</div>";
+    html += "<div class='status-label'>Current Demo</div>";
+    html += "</div>";
+    html += "<div class='status-item'>";
+    html += "<div class='status-value' id='statusStep'>0</div>";
+    html += "<div class='status-label'>Current Step</div>";
+    html += "</div>";
+    html += "<div class='status-item'>";
+    html += "<div class='status-value' id='statusElapsed'>0:00</div>";
+    html += "<div class='status-label'>Time Elapsed</div>";
+    html += "</div>";
+    html += "<div class='status-item'>";
+    html += "<div class='status-value' id='statusRemaining'>0:00</div>";
+    html += "<div class='status-label'>Time Remaining</div>";
+    html += "</div>";
+    html += "</div>";
+    html += "</div>";
+
+    // Timeline Panel
+    html += "<div class='card'>";
+    html += "<h3>Demo Timeline</h3>";
+    html += "<div class='timeline' id='timeline'>";
+    html += "<div class='timeline-item'>";
+    html += "<div class='timeline-step'>1</div>";
+    html += "<div class='timeline-content'>";
+    html += "<div class='timeline-title'>Select a demo mode to see timeline</div>";
+    html += "<div class='timeline-description'>Choose from Gentle, Full Feature, Safety, or Voice Control demos above</div>";
+    html += "</div>";
+    html += "</div>";
+    html += "</div>";
+    html += "</div>";
+
+    // Statistics Panel
+    html += "<div class='card'>";
+    html += "<h3>Demo Statistics</h3>";
+    html += "<p>Total demo runs: <strong>Loading...</strong></p>";
+    html += "<p>Most popular demo: <strong>Loading...</strong></p>";
+    html += "<p>Average session duration: <strong>Loading...</strong></p>";
+    html += "</div>";
+
+    html += "</div>"; // End container
+
+    return html;
+}
+
+
 void WebServer::sendStatusPage(WiFiClient& client) {
     sendHttpHeader(client);
 
@@ -2169,6 +2629,415 @@ void WebServer::exportConfiguration(WiFiClient& client) {
     sendHttpHeader(client, "application/json");
     client.println(jsonConfig);
 }
+
+// Add these methods at the end of WebServer.cpp:
+
+void WebServer::handleDemoAPI(WiFiClient& client, String command) {
+    Serial.print("Demo API Command: ");
+    Serial.println(command);
+
+    if (command.startsWith("-start")) {
+        startDemo(client, command);
+    } else if (command == "-stop") {
+        stopDemo(client);
+    } else if (command == "-status") {
+        getDemoStatus(client);
+    } else {
+        sendJsonResponse(client, "{\"error\":\"Unknown demo command\"}");
+    }
+}
+
+void WebServer::startDemo(WiFiClient& client, String params) {
+    // Extract demo mode: -start?mode=1 (where 1 = DEMO_FULL_FEATURE)
+    int modeStart = params.indexOf("mode=") + 5;
+    int modeValue = params.substring(modeStart).toInt();
+
+    if (modeValue < 0 || modeValue >= RuntimeConfig::DEMO_NONE) {
+        sendJsonResponse(client, "{\"error\":\"Invalid demo mode\"}");
+        return;
+    }
+
+    RuntimeConfig::DemoMode mode = static_cast<RuntimeConfig::DemoMode>(modeValue);
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+    // Stop any active demo first
+    if (_demoActive) {
+        stopDemo(client);
+        delay(1000);
+    }
+
+    // Start new demo
+    config.setDemoMode(mode);
+    config.incrementDemoRunCount();
+
+    _demoActive = true;
+    _currentDemo = mode;
+    _demoStartTime = millis();
+    _demoStep = 0;
+    _demoSequenceActive = true;
+
+    // Log demo start
+    RuntimeConfig::DemoConfig demoConfig = config.getDemoConfig(mode);
+    logDemoEvent("start", "Demo started: " + demoConfig.description);
+
+    String response = "{\"status\":\"started\",\"mode\":" + String(modeValue) +
+                     ",\"duration\":" + String(demoConfig.duration) + "}";
+    sendJsonResponse(client, response);
+
+    Serial.print("Demo started: Mode ");
+    Serial.println(modeValue);
+
+    // Start demo sequence in background
+    runDemoSequence(mode);
+}
+
+void WebServer::stopDemo(WiFiClient& client) {
+    if (!_demoActive) {
+        sendJsonResponse(client, "{\"error\":\"No demo active\"}");
+        return;
+    }
+
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    config.stopDemo();
+
+    _demoActive = false;
+    _currentDemo = RuntimeConfig::DEMO_NONE;
+    _demoSequenceActive = false;
+
+    logDemoEvent("stop", "Demo stopped by user");
+
+    sendJsonResponse(client, "{\"status\":\"stopped\"}");
+    Serial.println("Demo stopped");
+}
+
+void WebServer::getDemoStatus(WiFiClient& client) {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+    String response = "{";
+    response += "\"active\":" + String(_demoActive ? "true" : "false") + ",";
+    response += "\"mode\":" + String(_currentDemo) + ",";
+    response += "\"step\":" + String(_demoStep) + ",";
+
+    if (_demoActive) {
+        unsigned long elapsed = (millis() - _demoStartTime) / 1000;
+        RuntimeConfig::DemoConfig demoConfig = config.getDemoConfig(_currentDemo);
+        float progress = (float)elapsed / demoConfig.duration * 100;
+
+        response += "\"elapsed\":" + String(elapsed) + ",";
+        response += "\"duration\":" + String(demoConfig.duration) + ",";
+        response += "\"progress\":" + String(progress) + ",";
+        response += "\"description\":\"" + demoConfig.description + "\"";
+    } else {
+        response += "\"elapsed\":0,\"duration\":0,\"progress\":0,\"description\":\"\"";
+    }
+
+    response += ",\"total_runs\":" + String(config.getDemoRunCount());
+    response += "}";
+
+    sendJsonResponse(client, response);
+}
+
+void WebServer::runDemoSequence(RuntimeConfig::DemoMode mode) {
+    switch(mode) {
+        case RuntimeConfig::DEMO_GENTLE:
+            runGentleDemo();
+            break;
+        case RuntimeConfig::DEMO_FULL_FEATURE:
+            runFullFeatureDemo();
+            break;
+        case RuntimeConfig::DEMO_SAFETY:
+            runSafetyDemo();
+            break;
+        case RuntimeConfig::DEMO_VOICE_CONTROL:
+            runVoiceControlDemo();
+            break;
+        default:
+            break;
+    }
+}
+
+void WebServer::runGentleDemo() {
+    logDemoEvent("gentle", "Starting gentle demo sequence");
+
+    // Step 1: Introduction (10 seconds)
+    _demoStep = 1;
+    logDemoEvent("gentle", "Step 1: System introduction");
+    delay(10000);
+
+    // Step 2: Slow swing start (20 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 2;
+        logDemoEvent("gentle", "Step 2: Starting gentle swing motion");
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(20000);
+    }
+
+    // Step 3: Speed demonstration (30 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 3;
+        logDemoEvent("gentle", "Step 3: Speed adjustment demonstration");
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
+        delay(15000);
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
+        delay(15000);
+    }
+
+    // Step 4: Door operation (20 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 4;
+        logDemoEvent("gentle", "Step 4: Door operation demonstration");
+        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+        delay(2000);
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+        delay(10000);
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+        delay(8000);
+    }
+
+    // Step 5: Conclusion
+    if (_demoSequenceActive) {
+        _demoStep = 5;
+        logDemoEvent("gentle", "Step 5: Demo conclusion");
+        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+        delay(5000);
+    }
+
+    // Auto-stop demo
+    if (_demoSequenceActive) {
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        config.stopDemo();
+        _demoActive = false;
+        _demoSequenceActive = false;
+        logDemoEvent("gentle", "Gentle demo completed automatically");
+    }
+}
+
+void WebServer::runFullFeatureDemo() {
+    logDemoEvent("full", "Starting full feature demo sequence");
+
+    // Step 1: Complete system startup (15 seconds)
+    _demoStep = 1;
+    logDemoEvent("full", "Step 1: System startup and initialization");
+    delay(15000);
+
+    // Step 2: Voice command demonstration (60 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 2;
+        logDemoEvent("full", "Step 2: Voice command demonstration");
+        // Simulate voice commands
+        delay(10000);
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(15000);
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
+        delay(15000);
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
+        delay(20000);
+    }
+
+    // Step 3: Full speed operation (90 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 3;
+        logDemoEvent("full", "Step 3: Full speed operation showcase");
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
+        delay(30000);
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
+        delay(60000);
+    }
+
+    // Step 4: Safety systems demonstration (60 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 4;
+        logDemoEvent("full", "Step 4: Safety systems demonstration");
+        // Demonstrate obstacle detection
+        simulateObstacle(25.0, "front");
+        delay(10000);
+        _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
+        delay(50000);
+    }
+
+    // Step 5: Advanced features (75 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 5;
+        logDemoEvent("full", "Step 5: Advanced features showcase");
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(30000);
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+        delay(15000);
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+        delay(30000);
+    }
+
+    // Step 6: Conclusion
+    if (_demoSequenceActive) {
+        _demoStep = 6;
+        logDemoEvent("full", "Step 6: Demo conclusion");
+        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+        delay(10000);
+    }
+
+    // Auto-stop demo
+    if (_demoSequenceActive) {
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        config.stopDemo();
+        _demoActive = false;
+        _demoSequenceActive = false;
+        logDemoEvent("full", "Full feature demo completed automatically");
+    }
+}
+
+void WebServer::runSafetyDemo() {
+    logDemoEvent("safety", "Starting safety demo sequence");
+
+    // Enable safety override for demo
+    _safetyOverrideEnabled = true;
+    _safetyOverrideTimeout = millis() + (10 * 60 * 1000); // 10 minutes
+
+    // Step 1: Obstacle detection demo (60 seconds)
+    _demoStep = 1;
+    logDemoEvent("safety", "Step 1: Obstacle detection demonstration");
+    _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+    delay(10000);
+
+    // Simulate front obstacle
+    simulateObstacle(20.0, "front");
+    delay(15000);
+    _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
+    delay(10000);
+
+    // Simulate rear obstacle
+    simulateObstacle(15.0, "rear");
+    delay(15000);
+    _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
+    delay(10000);
+
+    // Step 2: Emergency stop demonstration (30 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 2;
+        logDemoEvent("safety", "Step 2: Emergency stop demonstration");
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(10000);
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
+        delay(10000);
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY_RESET);
+        delay(10000);
+    }
+
+    // Step 3: User departure simulation (45 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 3;
+        logDemoEvent("safety", "Step 3: User departure safety demonstration");
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(15000);
+        simulateUserDeparture();
+        delay(15000);
+        _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
+        delay(15000);
+    }
+
+    // Step 4: Motor protection demo (45 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 4;
+        logDemoEvent("safety", "Step 4: Motor protection demonstration");
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(15000);
+        simulateMotorStall();
+        delay(15000);
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY_RESET);
+        delay(15000);
+    }
+
+    // Disable safety override
+    _safetyOverrideEnabled = false;
+
+    // Auto-stop demo
+    if (_demoSequenceActive) {
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        config.stopDemo();
+        _demoActive = false;
+        _demoSequenceActive = false;
+        logDemoEvent("safety", "Safety demo completed automatically");
+    }
+}
+
+void WebServer::runVoiceControlDemo() {
+    logDemoEvent("voice", "Starting voice control demo sequence");
+
+    // Step 1: Voice recognition introduction (30 seconds)
+    _demoStep = 1;
+    logDemoEvent("voice", "Step 1: Voice recognition system introduction");
+    delay(30000);
+
+    // Step 2: Start command demo (30 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 2;
+        logDemoEvent("voice", "Step 2: 'GO' voice command demonstration");
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(30000);
+    }
+
+    // Step 3: Speed control commands (60 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 3;
+        logDemoEvent("voice", "Step 3: Speed control voice commands");
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
+        delay(20000);
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
+        delay(20000);
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
+        delay(20000);
+    }
+
+    // Step 4: Door control commands (60 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 4;
+        logDemoEvent("voice", "Step 4: Door control voice commands");
+        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+        delay(10000);
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+        delay(20000);
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+        delay(30000);
+    }
+
+    // Step 5: Stop command demo (30 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 5;
+        logDemoEvent("voice", "Step 5: 'STOP' voice command demonstration");
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+        delay(15000);
+        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+        delay(15000);
+    }
+
+    // Step 6: Voice recognition accuracy showcase (30 seconds)
+    if (_demoSequenceActive) {
+        _demoStep = 6;
+        logDemoEvent("voice", "Step 6: Voice recognition accuracy showcase");
+        delay(30000);
+    }
+
+    // Auto-stop demo
+    if (_demoSequenceActive) {
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        config.stopDemo();
+        _demoActive = false;
+        _demoSequenceActive = false;
+        logDemoEvent("voice", "Voice control demo completed automatically");
+    }
+}
+
+void WebServer::logDemoEvent(String event, String description) {
+    String upperEvent = event;
+    upperEvent.toUpperCase();
+    Serial.print("DEMO LOG: [");
+    Serial.print(upperEvent);
+    Serial.print("] ");
+    Serial.println(description);
+
+    // Could also log to safety event system if desired
+    logSafetyEvent("demo_" + event, description, "INFO", 0);
+}
+
 
 String WebServer::getSystemStatus() {
     return String(_stateMachine->getStateString());

@@ -246,6 +246,26 @@ void RuntimeConfig::setAudioFeedbackEnabled(bool enabled) {
     notifyCallbacks("audioFeedback");
 }
 
+void RuntimeConfig::setVoiceRecognitionEnabled(bool enabled) {
+    setFlag(FLAG_VOICE_RECOGNITION, enabled);
+    notifyCallbacks("voiceRecognition");
+}
+
+void RuntimeConfig::setWatchdogEnabled(bool enabled) {
+    setFlag(FLAG_WATCHDOG_ENABLED, enabled);
+    notifyCallbacks("watchdog");
+}
+
+void RuntimeConfig::setCalibrationValid(bool valid) {
+    setFlag(FLAG_CALIBRATION_VALID, valid);
+    notifyCallbacks("calibrationValid");
+}
+
+void RuntimeConfig::setDemoModeEnabled(bool enabled) {
+    setFlag(FLAG_DEMO_MODE, enabled);
+    notifyCallbacks("demoMode");
+}
+
 // Usage tracking
 void RuntimeConfig::incrementSwingCycles() {
     if (_settings.totalSwingCycles < 65535) {
@@ -268,6 +288,167 @@ void RuntimeConfig::notifyCallbacks(const char* key) {
         }
     }
 }
+
+// Add these demo implementation methods at the end of RuntimeConfig.cpp:
+
+void RuntimeConfig::loadSafePreset() {
+    Serial.println("RuntimeConfig: Loading safe preset");
+    setWarningDistance(50.0f);
+    setCriticalDistance(15.0f);
+    setSpeedLow(200);
+    setSpeedMedium(350);
+    setSpeedHigh(500);
+    setBuzzerVolume(8);
+    setAudioFeedbackEnabled(true);
+    save();
+}
+
+void RuntimeConfig::loadDefaultPreset() {
+    Serial.println("RuntimeConfig: Loading default preset");
+    loadDefaults(); // Use existing defaults
+    save();
+}
+
+void RuntimeConfig::loadTestingPreset() {
+    Serial.println("RuntimeConfig: Loading testing preset");
+    setWarningDistance(100.0f);
+    setCriticalDistance(20.0f);
+    setSpeedLow(150);
+    setSpeedMedium(300);
+    setSpeedHigh(450);
+    setDemoModeEnabled(true);
+    save();
+}
+
+void RuntimeConfig::setDemoMode(DemoMode mode) {
+    if (mode == DEMO_NONE) {
+        stopDemo();
+        return;
+    }
+
+    // Backup current configuration before demo
+    if (!_demoConfigBackedUp) {
+        _originalConfig.speed = _settings.speedMedium;
+        _originalConfig.warningDistance = _settings.frontWarningDistance;
+        _originalConfig.criticalDistance = _settings.frontCriticalDistance;
+        _originalConfig.enableVoice = isVoiceRecognitionEnabled();
+        _originalConfig.enableSafety = isAudioFeedbackEnabled();
+        _demoConfigBackedUp = true;
+    }
+
+    _currentDemoMode = mode;
+    _demoStartTime = millis();
+    setDemoModeEnabled(true);
+
+    // Apply demo-specific configuration
+    DemoConfig config = getDemoConfig(mode);
+    setSpeedMedium(config.speed);
+    setWarningDistance(config.warningDistance);
+    setCriticalDistance(config.criticalDistance);
+    setVoiceRecognitionEnabled(config.enableVoice);
+    setAudioFeedbackEnabled(config.enableSafety);
+
+    Serial.print("RuntimeConfig: Demo mode set to ");
+    Serial.println(mode);
+
+    notifyCallbacks("demoMode");
+}
+
+RuntimeConfig::DemoMode RuntimeConfig::getCurrentDemoMode() const {
+    return _currentDemoMode;
+}
+
+RuntimeConfig::DemoConfig RuntimeConfig::getDemoConfig(DemoMode mode) const {
+    DemoConfig config = {};
+
+    switch(mode) {
+        case DEMO_GENTLE:
+            config.speed = 300;
+            config.warningDistance = 50.0f;
+            config.criticalDistance = 15.0f;
+            config.duration = 120; // 2 minutes
+            config.enableVoice = true;
+            config.enableSafety = true;
+            config.description = "Gentle introduction with safe settings";
+            break;
+
+        case DEMO_FULL_FEATURE:
+            config.speed = 600;
+            config.warningDistance = 30.0f;
+            config.criticalDistance = 10.0f;
+            config.duration = 300; // 5 minutes
+            config.enableVoice = true;
+            config.enableSafety = true;
+            config.description = "Complete system showcase with all features";
+            break;
+
+        case DEMO_SAFETY:
+            config.speed = 400;
+            config.warningDistance = 40.0f;
+            config.criticalDistance = 12.0f;
+            config.duration = 180; // 3 minutes
+            config.enableVoice = false;
+            config.enableSafety = true;
+            config.description = "Safety system demonstrations and emergency scenarios";
+            break;
+
+        case DEMO_VOICE_CONTROL:
+            config.speed = 450;
+            config.warningDistance = 35.0f;
+            config.criticalDistance = 10.0f;
+            config.duration = 240; // 4 minutes
+            config.enableVoice = true;
+            config.enableSafety = true;
+            config.description = "Voice command showcase with audio feedback";
+            break;
+
+        default:
+            config.description = "No demo selected";
+            break;
+    }
+
+    return config;
+}
+
+bool RuntimeConfig::isDemoActive() const {
+    return _currentDemoMode != DEMO_NONE;
+}
+
+void RuntimeConfig::stopDemo() {
+    if (_currentDemoMode == DEMO_NONE) return;
+
+    Serial.println("RuntimeConfig: Stopping demo mode");
+
+    // Restore original configuration
+    if (_demoConfigBackedUp) {
+        setSpeedMedium(_originalConfig.speed);
+        setWarningDistance(_originalConfig.warningDistance);
+        setCriticalDistance(_originalConfig.criticalDistance);
+        setVoiceRecognitionEnabled(_originalConfig.enableVoice);
+        setAudioFeedbackEnabled(_originalConfig.enableSafety);
+        _demoConfigBackedUp = false;
+    }
+
+    _currentDemoMode = DEMO_NONE;
+    _demoStartTime = 0;
+    setDemoModeEnabled(false);
+
+    notifyCallbacks("demoMode");
+    save();
+}
+
+uint16_t RuntimeConfig::getDemoRunCount() const {
+    return _settings.reserved1 & 0xFFFF; // Use lower 16 bits of reserved1
+}
+
+void RuntimeConfig::incrementDemoRunCount() {
+    uint16_t count = getDemoRunCount();
+    if (count < 65535) {
+        _settings.reserved1 = (_settings.reserved1 & 0xFFFF0000) | (count + 1);
+        _isDirty = true;
+    }
+}
+
 
 // JSON export (simplified for Arduino)
 String RuntimeConfig::exportToJson() const {

@@ -112,6 +112,37 @@ public:
     void incrementEmergencyStops();
     void incrementOperationHours();
 
+    // Demo preset system
+    enum DemoMode {
+        DEMO_GENTLE = 0,
+        DEMO_FULL_FEATURE = 1,
+        DEMO_SAFETY = 2,
+        DEMO_VOICE_CONTROL = 3,
+        DEMO_NONE = 4
+    };
+
+    struct DemoConfig {
+        uint16_t speed;
+        float warningDistance;
+        float criticalDistance;
+        uint16_t duration;       // seconds
+        bool enableVoice;
+        bool enableSafety;
+        String description;
+    };
+
+    // Demo management methods
+    void setDemoMode(DemoMode mode);
+    DemoMode getCurrentDemoMode() const;
+    DemoConfig getDemoConfig(DemoMode mode) const;
+    bool isDemoActive() const;
+    void stopDemo();
+
+    // Demo statistics
+    uint16_t getDemoRunCount() const;
+    void incrementDemoRunCount();
+
+
     // Calibration support
     bool updateCalibrationData(const String& sensor, float baseline);
     float getSensorBaseline(const String& sensor) const;
@@ -128,9 +159,12 @@ public:
     void loadTestingPreset();   // For development/testing
 
 private:
-    RuntimeConfig() : _isDirty(false), _callbackCount(0) {
+    RuntimeConfig() : _isDirty(false), _callbackCount(0),
+                     _currentDemoMode(DEMO_NONE), _demoStartTime(0),
+                     _demoConfigBackedUp(false) {
         // Initialize settings to zero
         memset(&_settings, 0, sizeof(Settings));
+        memset(&_originalConfig, 0, sizeof(DemoConfig));
 
         // Initialize callback array to null pointers
         for (uint8_t i = 0; i < MAX_CALLBACKS; i++) {
@@ -140,6 +174,11 @@ private:
 
     Settings _settings;
     bool _isDirty;
+
+    DemoMode _currentDemoMode;
+    unsigned long _demoStartTime;
+    DemoConfig _originalConfig;  // Store original settings
+    bool _demoConfigBackedUp;
 
     // Simple callback system
     static const uint8_t MAX_CALLBACKS = 3;

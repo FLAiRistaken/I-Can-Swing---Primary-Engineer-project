@@ -6,6 +6,7 @@
 #include "StateMachine.h"
 #include "SafetyMonitor.h"
 #include "StepperDriver.h"
+#include "RuntimeConfig.h"
 
 
 class WebServer {
@@ -94,6 +95,33 @@ private:
     // Logging methods
     void logSafetyEvent(String eventType, String description, String status, unsigned long responseTime);
     String generateSafetyTestHTML();
+
+    // Demo system state tracking
+    bool _demoActive;
+    RuntimeConfig::DemoMode _currentDemo;
+    unsigned long _demoStartTime;
+    int _demoStep;
+    unsigned long _demoStepStartTime;
+    bool _demoSequenceActive;
+
+    // Demo management methods
+    void handleDemoAPI(WiFiClient& client, String command);
+    void startDemo(WiFiClient& client, String params);
+    void stopDemo(WiFiClient& client);
+    void getDemoStatus(WiFiClient& client);
+    void runDemoSequence(RuntimeConfig::DemoMode mode);
+    void sendDemoPage(WiFiClient& client);
+
+    // Demo sequence implementations
+    void runGentleDemo();
+    void runFullFeatureDemo();
+    void runSafetyDemo();
+    void runVoiceControlDemo();
+
+    // Demo utilities
+    String generateDemoHTML();
+    void logDemoEvent(String event, String description);
+
 
     // Page handlers
     void sendHomePage(WiFiClient& client);
