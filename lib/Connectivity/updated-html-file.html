@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Wheelchair Swing Control Center</title>
+    <link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css' rel='stylesheet'>
+    <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+    <style>
+        /* === MODERN MINIMALIST DESIGN SYSTEM === */
+        :root {
+            --primary: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-600: #475569;
+            --gray-900: #0f172a;
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        /* === LAYOUT === */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* === DEMO BANNER === */
+        .demo-banner {
+            background: linear-gradient(135deg, var(--primary), #6366f1);
+            color: white;
+            text-align: center;
+            padding: 12px;
+            font-weight: 600;
+            box-shadow: var(--shadow-md);
+        }
+
+        /* === HEADER === */
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--gray-900);
+            margin-bottom: 8px;
+        }
+
+        .header .subtitle {
+            color: var(--gray-600);
+            font-size: 1.1rem;
+        }
+
+        /* === NAVIGATION === */
+        .nav-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .nav-button {
+            background: white;
+            border: 2px solid var(--gray-200);
+            color: var(--gray-600);
+            padding: 16px;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .nav-button:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: translateY(-1px);
+        }
+
+        .nav-button.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        /* === UNIFIED CARD SYSTEM === */
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+            margin-bottom: 24px;
+            border: 1px solid var(--gray-200);
+        }
+
+        .card h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--gray-900);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card h3 i {
+            color: var(--primary);
+            font-size: 1.1rem;
+        }
+
+        /* === GRID LAYOUTS === */
+        .grid {
+            display: grid;
+            gap: 24px;
+        }
+
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+        .grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+        /* === STATUS DISPLAY === */
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        .status-item:last-child { border-bottom: none; }
+
+        .status-label {
+            font-weight: 600;
+            color: var(--gray-600);
+        }
+
+        .status-value {
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .status-ok { background: #dcfce7; color: #166534; }
+        .status-warning { background: #fef3c7; color: #92400e; }
+        .status-error { background: #fecaca; color: #991b1b; }
+
+        /* === BUTTONS === */
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-warning { background: var(--warning); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+
+        .btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        /* === CONTROLS === */
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .control-btn {
+            padding: 20px 16px;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-height: 80px;
+        }
+
+        .control-btn i { font-size: 1.5rem; }
+        .control-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+
+        /* === FORMS === */
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 16px;
+        }
+
+        .form-row label {
+            font-weight: 600;
+            color: var(--gray-700);
+            margin-bottom: 4px;
+        }
+
+        .form-row input,
+        .form-row select {
+            padding: 10px;
+            border: 2px solid var(--gray-200);
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-row input:focus,
+        .form-row select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--gray-200);
+            outline: none;
+            margin: 12px 0;
+        }
+
+        /* === PAGE SYSTEM === */
+        .page-content { display: none; }
+        .page-content.active { display: block; }
+
+        /* === RESPONSIVE === */
+        @media (max-width: 768px) {
+            .container { padding: 16px; }
+            .header h1 { font-size: 2rem; }
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+            .nav-grid { grid-template-columns: 1fr; }
+        }
+
+        /* === CHARTS === */
+        .chart-container {
+            height: 300px;
+            margin: 16px 0;
+        }
+
+        /* === LOG DISPLAY === */
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            background: var(--gray-50);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+
+        .log-entry {
+            padding: 8px;
+            margin: 4px 0;
+            border-radius: 4px;
+            border-left: 3px solid;
+        }
+
+        .log-info { background: #eff6ff; border-color: var(--primary); }
+        .log-warning { background: #fffbeb; border-color: var(--warning); }
+        .log-error { background: #fef2f2; border-color: var(--danger); }
+        .log-success { background: #f0fdf4; border-color: var(--success); }
+
+        /* === METRICS === */
+        .metric-card {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: var(--gray-600);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class='demo-banner'>
+        <i class="fas fa-flask"></i> DEMO MODE - Wheelchair Swing Control Interface
+    </div>
+
+    <div class='container'>
+        <!-- Header -->
+        <div class='header'>
+            <h1><i class='fas fa-wheelchair'></i> Wheelchair Swing Control</h1>
+            <p class='subtitle'>Advanced Safety & Control System</p>
+        </div>
+
+        <!-- Navigation -->
+        <div class='nav-grid'>
+            <button class='nav-button active' onclick='showPage("home")'>
+                <i class='fas fa-home'></i> Dashboard
+            </button>
+            <button class='nav-button' onclick='showPage("control")'>
+                <i class='fas fa-gamepad'></i> Control
+            </button>
+            <button class='nav-button' onclick='showPage("safety")'>
+                <i class='fas fa-shield-alt'></i> Safety Testing
+            </button>
+            <button class='nav-button' onclick='showPage("motor")'>
+                <i class='fas fa-cogs'></i> Motor Testing
+            </button>
+            <button class='nav-button' onclick='showPage("calibration")'>
+                <i class='fas fa-sliders-h'></i> Calibration
+            </button>
+        </div>
+
+        <!-- Dashboard Page -->
+        <div id='home-content' class='page-content active'>
+            <!-- System Metrics -->
+            <div class='grid grid-4'>
+                <div class='card metric-card'>
+                    <div class='metric-value' id='session-time'>0:00</div>
+                    <div class='metric-label'>Session Time</div>
+                </div>
+                <div class='card metric-card'>
+                    <div class='metric-value' id='total-rides'>247</div>
+                    <div class='metric-label'>Total Rides</div>
+                </div>
+                <div class='card metric-card'>
+                    <div class='metric-value' id='safety-score'>A+</div>
+                    <div class='metric-label'>Safety Score</div>
+                </div>
+                <div class='card metric-card'>
+                    <div class='metric-value status-ok' id='system-status'>SAFE</div>
+                    <div class='metric-label'>Status</div>
+                </div>
+            </div>
+
+            <!-- Main Status -->
+            <div class='grid grid-2'>
+                <div class='card'>
+                    <h3><i class='fas fa-tachometer-alt'></i>System Status</h3>
+                    <div class='status-item'>
+                        <span class='status-label'>State:</span>
+                        <span class='status-value status-ok' id='state'>IDLE</span>
+                    </div>
+                    <div class='status-item'>
+                        <span class='status-label'>Speed:</span>
+                        <span class='status-value' id='speed'>OFF</span>
+                    </div>
+                    <div class='status-item'>
+                        <span class='status-label'>Safety:</span>
+                        <span class='status-value status-ok' id='safety'>SAFE</span>
+                    </div>
+                    <div class='status-item'>
+                        <span class='status-label'>Door:</span>
+                        <span class='status-value' id='door-status'>CLOSED</span>
+                    </div>
+                </div>
+
+                <div class='card'>
+                    <h3><i class='fas fa-radar'></i>Sensor Readings</h3>
+                    <div class='status-item'>
+                        <span class='status-label'>Front Distance:</span>
+                        <span class='status-value' id='front-distance'>45.2 cm</span>
+                    </div>
+                    <div class='status-item'>
+                        <span class='status-label'>Rear Distance:</span>
+                        <span class='status-value' id='rear-distance'>38.7 cm</span>
+                    </div>
+                    <div class='status-item'>
+                        <span class='status-label'>User Present:</span>
+                        <span class='status-value status-ok' id='user-present'>Yes</span>
+                    </div>
+                    <div class='status-item'>
+                        <span class='status-label'>Pressure:</span>
+                        <span class='status-value' id='pressure'>750 units</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Controls -->
+            <div class='card'>
+                <h3><i class='fas fa-bolt'></i>Quick Controls</h3>
+                <div class='control-grid'>
+                    <button class='control-btn btn-success' onclick='sendCommand("start")'>
+                        <i class='fas fa-play'></i>Start
+                    </button>
+                    <button class='control-btn btn-warning' onclick='sendCommand("stop")'>
+                        <i class='fas fa-stop'></i>Stop
+                    </button>
+                    <button class='control-btn btn-primary' onclick='sendCommand("door-toggle")'>
+                        <i class='fas fa-door-open'></i>Door
+                    </button>
+                    <button class='control-btn btn-danger' onclick='sendCommand("emergency")'>
+                        <i class='fas fa-exclamation-triangle'></i>Emergency
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Page -->
+        <div id='control-content' class='page-content'>
+            <div class='card'>
+                <h3><i class='fas fa-gamepad'></i>Motion Controls</h3>
+                <div class='control-grid'>
+                    <button class='control-btn btn-success' onclick='sendCommand("start")'>
+                        <i class='fas fa-play'></i>Start Swing
+                    </button>
+                    <button class='control-btn btn-warning' onclick='sendCommand("stop")'>
+                        <i class='fas fa-stop'></i>Stop Swing
+                    </button>
+                    <button class='control-btn btn-primary' onclick='sendCommand("speed-up")'>
+                        <i class='fas fa-arrow-up'></i>Speed Up
+                    </button>
+                    <button class='control-btn btn-primary' onclick='sendCommand("speed-down")'>
+                        <i class='fas fa-arrow-down'></i>Speed Down
+                    </button>
+                </div>
+            </div>
+
+            <div class='card'>
+                <h3><i class='fas fa-door-open'></i>Door Controls</h3>
+                <div class='control-grid'>
+                    <button class='control-btn btn-primary' onclick='sendCommand("door-open")'>
+                        <i class='fas fa-door-open'></i>Open Door
+                    </button>
+                    <button class='control-btn btn-primary' onclick='sendCommand("door-close")'>
+                        <i class='fas fa-door-closed'></i>Close Door
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Safety Testing Page -->
+        <div id='safety-content' class='page-content'>
+            <div class='card'>
+                <h3><i class='fas fa-shield-alt'></i>Safety Testing</h3>
+                <p>Enable safety override to run comprehensive safety tests</p>
+                <div class='control-grid'>
+                    <button class='control-btn btn-warning' onclick='toggleSafetyOverride()'>
+                        <i class='fas fa-unlock'></i>Enable Override
+                    </button>
+                    <button class='control-btn btn-danger' onclick='runSafetyTest("obstacle")'>
+                        <i class='fas fa-exclamation-triangle'></i>Test Obstacle
+                    </button>
+                    <button class='control-btn btn-danger' onclick='runSafetyTest("user")'>
+                        <i class='fas fa-user-slash'></i>Test User Exit
+                    </button>
+                    <button class='control-btn btn-primary' onclick='runSafetyTest("auto")'>
+                        <i class='fas fa-tasks'></i>Auto Test
+                    </button>
+                </div>
+            </div>
+
+            <div class='card'>
+                <h3><i class='fas fa-clipboard-list'></i>Safety Log</h3>
+                <div class='log-container' id='safety-log'>
+                    <div class='log-entry log-info'>[INFO] Safety testing module initialized</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Motor Testing Page -->
+        <div id='motor-content' class='page-content'>
+            <div class='card'>
+                <h3><i class='fas fa-cogs'></i>Motor Testing</h3>
+                <div class='grid grid-2'>
+                    <div>
+                        <h4>Left Motor</h4>
+                        <div class='form-row'>
+                            <label>Speed: <span id='left-speed-val'>300</span> RPM</label>
+                            <input type='range' class='slider' id='left-speed' min='100' max='700' value='300'
+                                   oninput='updateSliderValue("left-speed-val", this.value)'>
+                        </div>
+                        <button class='btn btn-primary' onclick='testMotor("left")'>Test Left Motor</button>
+                    </div>
+                    <div>
+                        <h4>Right Motor</h4>
+                        <div class='form-row'>
+                            <label>Speed: <span id='right-speed-val'>300</span> RPM</label>
+                            <input type='range' class='slider' id='right-speed' min='100' max='700' value='300'
+                                   oninput='updateSliderValue("right-speed-val", this.value)'>
+                        </div>
+                        <button class='btn btn-primary' onclick='testMotor("right")'>Test Right Motor</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Calibration Page -->
+        <div id='calibration-content' class='page-content'>
+            <div class='card'>
+                <h3><i class='fas fa-sliders-h'></i>Sensor Calibration</h3>
+                <p>Calibrate sensors for optimal performance</p>
+                <div class='control-grid'>
+                    <button class='control-btn btn-primary' onclick='startCalibration("front")'>
+                        <i class='fas fa-radar'></i>Front Sensor
+                    </button>
+                    <button class='control-btn btn-primary' onclick='startCalibration("rear")'>
+                        <i class='fas fa-radar'></i>Rear Sensor
+                    </button>
+                    <button class='control-btn btn-primary' onclick='startCalibration("pressure")'>
+                        <i class='fas fa-hand-point-down'></i>Pressure Sensor
+                    </button>
+                </div>
+            </div>
+
+            <div class='card' id='calibration-progress' style='display: none;'>
+                <h3><i class='fas fa-spinner fa-spin'></i>Calibration in Progress</h3>
+                <div class='status-item'>
+                    <span class='status-label'>Readings:</span>
+                    <span class='status-value' id='cal-readings'>0/100</span>
+                </div>
+                <div class='status-item'>
+                    <span class='status-label'>Current Value:</span>
+                    <span class='status-value' id='cal-current'>0.0</span>
+                </div>
+                <button class='btn btn-success' onclick='saveCalibration()'>Save Calibration</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let systemState = {
+            currentState: 'IDLE',
+            speed: 'OFF',
+            safety: 'SAFE',
+            doorStatus: 'CLOSED',
+            userPresent: true,
+            sessionStartTime: Date.now()
+        };
+
+        let sessionTime = 0;
+        let safetyOverrideEnabled = false;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            startTimers();
+            simulateRealtimeData();
+        });
+
+        // Page navigation
+        function showPage(pageId) {
+            // Hide all pages
+            document.querySelectorAll('.page-content').forEach(page => {
+                page.classList.remove('active');
+            });
+
+            // Remove active class from nav buttons
+            document.querySelectorAll('.nav-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected page
+            document.getElementById(pageId + '-content').classList.add('active');
+
+            // Add active class to clicked button
+            event.target.classList.add('active');
+        }
+
+        // Send commands
+        function sendCommand(command) {
+            console.log('Command:', command);
+            // In real implementation, this would send to WebServer
+            updateSystemState(command);
+            showNotification(`Command sent: ${command}`, 'info');
+        }
+
+        // Update system state based on commands
+        function updateSystemState(command) {
+            switch(command) {
+                case 'start':
+                    systemState.currentState = 'SWINGING';
+                    systemState.speed = 'MEDIUM';
+                    break;
+                case 'stop':
+                    systemState.currentState = 'IDLE';
+                    systemState.speed = 'OFF';
+                    break;
+                case 'emergency':
+                    systemState.currentState = 'EMERGENCY';
+                    systemState.speed = 'OFF';
+                    systemState.safety = 'EMERGENCY';
+                    break;
+            }
+            updateDisplay();
+        }
+
+        // Update display with current state
+        function updateDisplay() {
+            document.getElementById('state').textContent = systemState.currentState;
+            document.getElementById('speed').textContent = systemState.speed;
+            document.getElementById('safety').textContent = systemState.safety;
+
+            // Update status classes
+            const stateEl = document.getElementById('state');
+            stateEl.className = 'status-value ' + getStatusClass(systemState.currentState);
+
+            const safetyEl = document.getElementById('safety');
+            safetyEl.className = 'status-value ' + getStatusClass(systemState.safety);
+        }
+
+        function getStatusClass(status) {
+            if (status === 'EMERGENCY') return 'status-error';
+            if (status === 'SWINGING') return 'status-warning';
+            return 'status-ok';
+        }
+
+        // Start timers
+        function startTimers() {
+            setInterval(() => {
+                sessionTime = Math.floor((Date.now() - systemState.sessionStartTime) / 1000);
+                const minutes = Math.floor(sessionTime / 60);
+                const seconds = sessionTime % 60;
+                document.getElementById('session-time').textContent =
+                    `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        // Simulate real-time data updates
+        function simulateRealtimeData() {
+            setInterval(() => {
+                // Update sensor readings with random variations
+                document.getElementById('front-distance').textContent =
+                    (40 + Math.random() * 20).toFixed(1) + ' cm';
+                document.getElementById('rear-distance').textContent =
+                    (35 + Math.random() * 25).toFixed(1) + ' cm';
+                document.getElementById('pressure').textContent =
+                    Math.floor(700 + Math.random() * 100) + ' units';
+            }, 2000);
+        }
+
+        // Safety testing functions
+        function toggleSafetyOverride() {
+            safetyOverrideEnabled = !safetyOverrideEnabled;
+            showNotification(
+                safetyOverrideEnabled ? 'Safety override enabled' : 'Safety override disabled',
+                safetyOverrideEnabled ? 'warning' : 'info'
+            );
+        }
+
+        function runSafetyTest(type) {
+            if (!safetyOverrideEnabled) {
+                showNotification('Enable safety override first', 'error');
+                return;
+            }
+            addSafetyLog(`Running ${type} safety test`, 'info');
+            showNotification(`Running ${type} test`, 'info');
+        }
+
+        function addSafetyLog(message, type) {
+            const logContainer = document.getElementById('safety-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logContainer.insertBefore(logEntry, logContainer.firstChild);
+
+            // Keep only last 20 entries
+            while (logContainer.children.length > 20) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+
+        // Motor testing
+        function testMotor(side) {
+            const speed = document.getElementById(`${side}-speed`).value;
+            showNotification(`Testing ${side} motor at ${speed} RPM`, 'info');
+        }
+
+        function updateSliderValue(elementId, value) {
+            document.getElementById(elementId).textContent = value;
+        }
+
+        // Calibration
+        function startCalibration(sensor) {
+            document.getElementById('calibration-progress').style.display = 'block';
+            showNotification(`Starting ${sensor} sensor calibration`, 'info');
+
+            // Simulate calibration progress
+            let readings = 0;
+            const interval = setInterval(() => {
+                readings++;
+                document.getElementById('cal-readings').textContent = `${readings}/100`;
+                document.getElementById('cal-current').textContent =
+                    (Math.random() * 100).toFixed(1);
+
+                if (readings >= 100) {
+                    clearInterval(interval);
+                    showNotification('Calibration data collected', 'success');
+                }
+            }, 100);
+        }
+
+        function saveCalibration() {
+            document.getElementById('calibration-progress').style.display = 'none';
+            showNotification('Calibration saved successfully', 'success');
+        }
+
+        // Notification system
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 12px 20px;
+                border-radius: 8px;
+                color: white;
+                font-weight: 600;
+                z-index: 9999;
+                transform: translateX(400px);
+                transition: transform 0.3s ease;
+                max-width: 300px;
+            `;
+
+            const colors = {
+                info: '#3b82f6',
+                success: '#10b981',
+                warning: '#f59e0b',
+                error: '#ef4444'
+            };
+
+            notification.style.backgroundColor = colors[type] || colors.info;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.style.transform = 'translateX(0)';
+            }, 100);
+
+            setTimeout(() => {
+                notification.style.transform = 'translateX(400px)';
+                setTimeout(() => {
+                    document.body.removeChild(notification);
+                }, 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
