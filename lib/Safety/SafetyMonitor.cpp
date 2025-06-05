@@ -190,13 +190,6 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     float effectiveCritical = getEffectiveCriticalDistance();
     float effectiveWarning = getEffectiveWarningDistance();
 
-    Serial.print("_frontDistance: ");
-    Serial.print(_frontDistance);
-    Serial.println(" cm");
-    Serial.print("_rearDistance: ");
-    Serial.print(_rearDistance);
-    Serial.println(" cm");
-
     // Check for critical proximity using dynamic threshold
     if ((_frontDistance > 0 && _frontDistance < effectiveCritical) ||
         (_rearDistance > 0 && _rearDistance < effectiveCritical)) {

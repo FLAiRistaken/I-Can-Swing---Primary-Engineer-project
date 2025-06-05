@@ -35,7 +35,7 @@ constexpr uint8_t PIN_BTN_DOOR       = A4;   // D16
 
 // ---- Sensors ----
 // Pressure sensor (analog only)
-constexpr uint8_t PIN_PRESSURE_SENSOR = A3;  // Analog input
+constexpr uint8_t PIN_PRESSURE_SENSOR = A0;  // Analog input
 
 // Ultrasonic Sensor 1 (front, use available digital pins)
 constexpr uint8_t PIN_ULTRASONIC1_TRIG = 10;  // Already used for stepper1 enable, if conflict, move to another unused pin

@@ -321,45 +321,52 @@ void setup() {
 }
 
 void loop() {
-    // Check for button presses
-    //handleButtons();
+    // Handle web server first
+    if (wifiManager.isConnected()) {
+        webServer.handleClient();
+    }
 
-    Serial.println("Loop...");
+    Serial.println(pressureSensor.readRawValue());
 
+    // RuntimeConfig save
     static unsigned long lastConfigCheck = 0;
     if (millis() - lastConfigCheck > 30000) { // Every 30 seconds
         RuntimeConfig::getInstance().save();
         lastConfigCheck = millis();
     }
 
-    // Timeout checking
+    // State machine and voice updates
     stateMachine.update();
-
     voiceModule.update();
 
-    // Check sensors at regular intervals
+    // Sensor checks
     unsigned long currentMillis = millis();
     if (currentMillis - lastSensorCheck >= SENSOR_CHECK_MS) {
         lastSensorCheck = currentMillis;
         Serial.println("Checking sensors");
         safetyMonitor.checkSafety();
         handleUserPresenceChanges();
+
+        // Sensor debug
+        Serial.print("Front: ");
+        Serial.print(safetyMonitor.getFrontDistance());
+        Serial.print(" cm, Rear: ");
+        Serial.print(safetyMonitor.getRearDistance());
+        Serial.println(" cm");
     }
 
-    // Update door actuator
+    // Update hardware
     doorActuator.update();
-
-    // Update motor control
     updateMotors();
 
-    if (wifiManager.isConnected()) {
-        webServer.handleClient();
-    }
-
-    // Update display at regular intervals
+    // Display update
     if (currentMillis - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {
         lastDisplayUpdate = currentMillis;
         Serial.println("Updating display");
         updateDisplay();
     }
+
+    // Small delay
+    delay(10);
 }
+

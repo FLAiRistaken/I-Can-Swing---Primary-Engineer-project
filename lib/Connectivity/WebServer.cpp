@@ -2,3047 +2,1723 @@
 #include "WebServer.h"
 #include "RuntimeConfig.h"
 
-// Update constructor initialization list in WebServer.cpp:
-WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
+WebServer::WebServer(StateMachine *stateMachine, SafetyMonitor *safetyMonitor)
     : _server(80), _stateMachine(stateMachine), _safetyMonitor(safetyMonitor),
-      _calibrationActive(false), _calibrationStartTime(0), _calibrationStep(0),
-      _currentSensorCalibrating(""), _motorTestActive(false), _currentMotorTest(""),
-      _motorTestStartTime(0), _motorTestStep(0), _leftMotorPosition(0),
-      _rightMotorPosition(0), _motorTestSafetyCheck(true), _safetyTestActive(false),
-      _currentSafetyTest(""), _safetyTestStartTime(0), _safetyTestEndTime(0),
-      _safetyTestStep(0), _safetyTestThreshold(0.0f), _safetyOverrideEnabled(false),
-      _safetyOverrideTimeout(0), _safetyLogIndex(0),
-      _demoActive(false), _currentDemo(RuntimeConfig::DEMO_NONE),
-      _demoStartTime(0), _demoStep(0), _demoStepStartTime(0),
-      _demoSequenceActive(false) {}
+      _leftStepper(nullptr), _rightStepper(nullptr), _doorActuator(nullptr), _logIndex(0)
+{
+
+    // ✅ SIMPLIFIED: Initialize single test state structure
+    _testState = {
+        false, "", 0, 0, 0, 0, true,        // Motor testing
+        false, "", 0, 0, 0, false           // Demo
+    };
+}
+
+void WebServer::setStepperDrivers(StepperDriver *leftStepper, StepperDriver *rightStepper)
+{
+    _leftStepper = leftStepper;
+    _rightStepper = rightStepper;
+}
+
+void WebServer::setDoorActuator(ActuatorDriver* doorActuator) {
+    _doorActuator = doorActuator;
+}
 
 
-void WebServer::begin(int port) {
+void WebServer::begin(int port)
+{
     _server.begin();
-    Serial.print("Web Server started on port ");
+    Serial.print(F("WebServer started on port "));
     Serial.println(port);
 }
 
 void WebServer::handleClient() {
     WiFiClient client = _server.available();
+    if (!client) return;
 
-    if (client) {
-        Serial.println("New client connected");
-        String request = "";
-
-        while (client.connected()) {
-            if (client.available()) {
-                String line = client.readStringUntil('\r');
-                request += line;
-
-                if (line.length() == 1 && line[0] == '\n') {
-                    break;
-                }
-            }
-        }
-
-        // Parse request
-        if (request.indexOf("GET / ") >= 0) {
-            sendHomePage(client);
-        } else if (request.indexOf("GET /control") >= 0) {
-            sendControlPage(client);
-        } else if (request.indexOf("GET /status") >= 0) {
-            sendStatusPage(client);
-        } else if (request.indexOf("GET /config") >= 0) {
-            sendConfigPage(client);
-        } else if (request.indexOf("GET /debug") >= 0) {
-            sendDebugPage(client);
-        } else if (request.indexOf("GET /demo") >= 0) {
-            sendDemoPage(client);
-        } else if (request.indexOf("GET /api/demo") >= 0) {
-            // Extract demo command
-            int apiStart = request.indexOf("/api/demo") + 9;
-            int apiEnd = request.indexOf(" ", apiStart);
-            String command = request.substring(apiStart, apiEnd);
-            handleDemoAPI(client, command);
-        } else if (request.indexOf("GET /safety-test") >= 0) {
-            sendSafetyTestPage(client);
-        } else if (request.indexOf("GET /api/safety-test") >= 0) {
-            // Extract safety test command
-            int apiStart = request.indexOf("/api/safety-test") + 16;
-            int apiEnd = request.indexOf(" ", apiStart);
-            String command = request.substring(apiStart, apiEnd);
-            handleSafetyTestAPI(client, command);
-        } else if (request.indexOf("GET /motor-test") >= 0) {
-            sendMotorTestPage(client);
-        } else if (request.indexOf("GET /api/motor-test") >= 0) {
-            int apiStart = request.indexOf("/api/motor-test") + 15;
-            int apiEnd = request.indexOf(" ", apiStart);
-            String command = request.substring(apiStart, apiEnd);
-            handleMotorTestAPI(client, command);
-        } else if (request.indexOf("GET /calibration") >= 0) {
-            sendCalibrationPage(client);
-        } else if (request.indexOf("GET /api/calibrate") >= 0) {
-            // Extract calibration command
-            int apiStart = request.indexOf("/api/calibrate") + 14;
-            int apiEnd = request.indexOf(" ", apiStart);
-            String command = request.substring(apiStart, apiEnd);
-            handleCalibrationAPI(client, command);
-        } else if (request.indexOf("GET /api/config-update") >= 0) {
-            int paramsStart = request.indexOf("?") + 1;
-            int paramsEnd = request.indexOf(" HTTP", paramsStart);
-            String params = request.substring(paramsStart, paramsEnd);
-            handleConfigUpdate(client, params);
-        } else if (request.indexOf("GET /api/config-export") >= 0) {
-            exportConfiguration(client);
-        } else if (request.indexOf("GET /api/") >= 0) {
-            int apiStart = request.indexOf("/api/") + 5;
-            int apiEnd = request.indexOf(" ", apiStart);
-            String command = request.substring(apiStart, apiEnd);
-            handleControlCommand(client, command);
-        } else {
-            send404Page(client);
-        }
-
+    // Only process if data is immediately available
+    if (!client.available()) {
         client.stop();
-        Serial.println("Client disconnected");
-    }
-}
-
-// Handle safety test API requests
-void WebServer::handleSafetyTestAPI(WiFiClient& client, String command) {
-    Serial.print("Safety Test API Command: ");
-    Serial.println(command);
-
-    // Check if safety override is enabled or if we're trying to disable it
-    if (!_safetyOverrideEnabled && !command.startsWith("-override") && !command.startsWith("-status")) {
-        sendJsonResponse(client, "{\"error\":\"Safety override must be enabled for testing\"}");
         return;
     }
 
-    // Handle timeout for safety override
-    if (_safetyOverrideEnabled) {
-        unsigned long currentTime = millis();
-        if (currentTime > _safetyOverrideTimeout) {
-            _safetyOverrideEnabled = false;
-            Serial.println("Safety override automatically disabled due to timeout");
-            if (!command.startsWith("-override") && !command.startsWith("-status")) {
-                sendJsonResponse(client, "{\"error\":\"Safety override timeout - must be re-enabled\"}");
-                return;
-            }
-        }
-    }
+    // Read only what's available now
+    String request = "";
+    unsigned long startTime = millis();
 
-    if (command.startsWith("-trigger")) {
-        triggerSafetyEvent(client, command);
-    } else if (command.startsWith("-threshold")) {
-        runThresholdTest(client, command);
-    } else if (command.startsWith("-response-time")) {
-        measureResponseTime(client, command);
-    } else if (command == "-automated-test") {
-        runAutomatedTestSequence(client);
-    } else if (command == "-status") {
-        getSafetyTestStatus(client);
-    } else if (command == "-logs") {
-        getSafetyEventLogs(client);
-    } else if (command.startsWith("-override")) {
-        if (command.indexOf("enable") > 0) {
-            toggleSafetyOverride(client, true);
-        } else if (command.indexOf("disable") > 0) {
-            toggleSafetyOverride(client, false);
-        } else {
-            sendJsonResponse(client, "{\"error\":\"Invalid override command\"}");
-        }
-    } else if (command == "-reset-logs") {
-        resetSafetyLogs(client);
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Unknown safety test command\"}");
-    }
-}
+    // Read with timeout to prevent blocking
+    while (client.connected() && client.available() && (millis() - startTime < 1000)) {
+        String line = client.readStringUntil('\n');
+        request += line;
 
-// Trigger a specific safety event
-void WebServer::triggerSafetyEvent(WiFiClient& client, String params) {
-    // Extract parameters: -trigger?event=obstacle&distance=10&sensor=front
-    int eventStart = params.indexOf("event=") + 6;
-    int eventEnd = params.indexOf("&", eventStart);
-    String eventType = params.substring(eventStart, eventEnd);
-
-    bool success = false;
-    String description = "";
-
-    _safetyTestActive = true;
-    _currentSafetyTest = "trigger_" + eventType;
-    _safetyTestStartTime = micros();
-
-    if (eventType == "obstacle") {
-        int distanceStart = params.indexOf("distance=") + 9;
-        int distanceEnd = params.indexOf("&", distanceStart);
-        float distance = params.substring(distanceStart, distanceEnd).toFloat();
-
-        int sensorStart = params.indexOf("sensor=") + 7;
-        String sensor = params.substring(sensorStart);
-
-        success = simulateObstacle(distance, sensor);
-        description = "Simulated " + sensor + " obstacle at " + String(distance) + "cm";
-    } else if (eventType == "user") {
-        success = simulateUserDeparture();
-        description = "Simulated user departure from swing";
-    } else if (eventType == "stall") {
-        success = simulateMotorStall();
-        description = "Simulated motor stall condition";
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Unknown safety event type\"}");
-        return;
-    }
-
-    _safetyTestEndTime = micros();
-    unsigned long responseTime = (_safetyTestEndTime - _safetyTestStartTime) / 1000; // Convert to ms
-
-    // Log the event
-    logSafetyEvent(eventType, description, success ? "SUCCESS" : "FAILED", responseTime);
-
-    String response = "{\"status\":\"" + String(success ? "success" : "failed") +
-                     "\",\"event\":\"" + eventType +
-                     "\",\"description\":\"" + description +
-                     "\",\"response_time\":" + String(responseTime) + "}";
-    sendJsonResponse(client, response);
-
-    Serial.print("Safety event triggered: ");
-    Serial.print(eventType);
-    Serial.print(" - ");
-    Serial.println(success ? "SUCCESS" : "FAILED");
-}
-
-// Run threshold testing
-void WebServer::runThresholdTest(WiFiClient& client, String params) {
-    // Extract parameters: -threshold?sensor=front&start=100&end=5&steps=20
-    int sensorStart = params.indexOf("sensor=") + 7;
-    int sensorEnd = params.indexOf("&", sensorStart);
-    String sensor = params.substring(sensorStart, sensorEnd);
-
-    int startValStart = params.indexOf("start=") + 6;
-    int startValEnd = params.indexOf("&", startValStart);
-    float startVal = params.substring(startValStart, startValEnd).toFloat();
-
-    int endValStart = params.indexOf("end=") + 4;
-    int endValEnd = params.indexOf("&", endValStart);
-    float endVal = params.substring(endValStart, endValEnd).toFloat();
-
-    int stepsStart = params.indexOf("steps=") + 6;
-    int steps = params.substring(stepsStart).toInt();
-
-    if (steps <= 0 || steps > 100) {
-        steps = 20; // Default to 20 steps
-    }
-
-    _safetyTestActive = true;
-    _currentSafetyTest = "threshold_" + sensor;
-    _safetyTestStartTime = millis();
-    _safetyTestStep = 0;
-    _safetyTestThreshold = startVal;
-
-    String response = "{\"status\":\"started\",\"test\":\"threshold\",\"sensor\":\"" + sensor +
-                     "\",\"start\":" + String(startVal) +
-                     ",\"end\":" + String(endVal) +
-                     ",\"steps\":" + String(steps) + "}";
-    sendJsonResponse(client, response);
-
-    // Perform threshold test - adjust gradually from start to end value
-    float stepSize = (startVal - endVal) / steps;
-
-    for (int i = 0; i <= steps; i++) {
-        float currentThreshold = startVal - (stepSize * i);
-
-        // Set the threshold in RuntimeConfig temporarily for testing
-       RuntimeConfig& config = RuntimeConfig::getInstance();
-       config.setWarningDistance(currentThreshold);
-
-        // Simulate obstacle at current threshold
-        bool detected = simulateObstacle(currentThreshold, sensor);
-        String stepDescription = "Threshold test: " + sensor + " at " + String(currentThreshold) + "cm";
-
-        // Log this step
-        logSafetyEvent("threshold", stepDescription,
-                       detected ? "DETECTED" : "NOT DETECTED", 0);
-
-        // Wait briefly between steps
-        delay(500);
-
-        // If a safety event was triggered, end the test
-        if (detected && _stateMachine->getCurrentState() != StateMachine::STATE_IDLE) {
+        // Look for end of HTTP headers (empty line)
+        if (line.length() <= 2) { // Just \r\n or \n
             break;
         }
     }
 
-    // Reset thresholds to defaults after test
+    // Only handle if we have a complete request
+    if (request.length() < 10) {
+        client.stop();
+        return;
+    }
+
+    Serial.print(F("WebServer: Processing request - "));
+    Serial.println(request.substring(0, 50)); // Debug output
+
+    // Fast request routing
+    if (request.indexOf(F("GET / ")) >= 0) {
+        sendHomePage(client);
+    } else if (request.indexOf(F("GET /control")) >= 0) {
+        sendControlPage(client);
+    } else if (request.indexOf(F("GET /config")) >= 0) {
+        sendConfigPage(client);
+    } else if (request.indexOf(F("GET /motor-test")) >= 0) {
+        sendMotorTestPage(client);
+    } else if (request.indexOf(F("GET /demo")) >= 0) {
+        sendDemoPage(client);
+    } else if (request.indexOf(F("GET /api/")) >= 0) {
+        // Extract API endpoint and parameters
+        int apiStart = request.indexOf(F("/api/")) + 5;
+        int apiEnd = request.indexOf(F(" "), apiStart);
+        String endpoint = request.substring(apiStart, apiEnd);
+
+        String params = "";
+        int paramStart = request.indexOf(F("?"));
+        if (paramStart >= 0) {
+            int paramEnd = request.indexOf(F(" HTTP"), paramStart);
+            params = request.substring(paramStart + 1, paramEnd);
+            endpoint = endpoint.substring(0, endpoint.indexOf(F("?")));
+        }
+
+        handleAPI(client, endpoint, params);
+    } else {
+        send404Page(client);
+    }
+
+    client.stop();
+
+    Serial.println(F("WebServer: Request completed, loop continues"));
+}
+
+// Unified CSS in flash memory
+void WebServer::sendUnifiedCSS(WiFiClient &client)
+{
+    client.println(F("<style>"));
+    client.println(F(":root{--primary:#3b82f6;--success:#10b981;--warning:#f59e0b;--danger:#ef4444;--gray-50:#f8fafc;--gray-100:#f1f5f9;--gray-200:#e2e8f0;--gray-600:#475569;--gray-900:#0f172a}"));
+    client.println(F("*{margin:0;padding:0;box-sizing:border-box}"));
+    client.println(F("body{font-family:Inter,sans-serif;background:var(--gray-50);color:var(--gray-900);line-height:1.6}"));
+    client.println(F(".container{max-width:1200px;margin:0 auto;padding:20px}"));
+    client.println(F(".header{background:#fff;border-radius:12px;padding:32px;margin-bottom:24px;text-align:center;box-shadow:0 1px 3px rgb(0 0 0/0.1)}"));
+    client.println(F(".header h1{font-size:2.5rem;font-weight:800;margin-bottom:8px}"));
+    client.println(F(".header a{color:var(--primary);text-decoration:none}"));
+    client.println(F(".card{background:#fff;border-radius:12px;padding:24px;margin-bottom:24px;box-shadow:0 1px 3px rgb(0 0 0/0.1);border:1px solid var(--gray-200)}"));
+    client.println(F(".card h3{font-size:1.25rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}"));
+    client.println(F(".card h3 i{color:var(--primary);font-size:1.1rem}"));
+    client.println(F(".btn{padding:12px 24px;border-radius:8px;font-weight:600;border:none;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:8px;margin:4px;transition:all 0.2s ease}"));
+    client.println(F(".btn:hover{transform:translateY(-1px);box-shadow:0 4px 6px rgb(0 0 0/0.1)}"));
+    client.println(F(".btn-primary{background:var(--primary);color:#fff}"));
+    client.println(F(".btn-success{background:var(--success);color:#fff}"));
+    client.println(F(".btn-warning{background:var(--warning);color:#fff}"));
+    client.println(F(".btn-danger{background:var(--danger);color:#fff}"));
+    client.println(F(".grid{display:grid;gap:16px}"));
+    client.println(F(".grid-2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}"));
+    client.println(F(".grid-3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}"));
+    client.println(F(".grid-4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}"));
+    client.println(F(".status-item{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--gray-200)}"));
+    client.println(F(".status-item:last-child{border-bottom:none}"));
+    client.println(F(".status-value{font-weight:700;padding:4px 12px;border-radius:6px;font-size:0.9rem}"));
+    client.println(F(".status-ok{background:#dcfce7;color:#166534}"));
+    client.println(F(".status-warning{background:#fef3c7;color:#92400e}"));
+    client.println(F(".status-error{background:#fecaca;color:#991b1b}"));
+    client.println(F(".form-group{margin-bottom:16px}"));
+    client.println(F(".form-group label{display:block;font-weight:600;margin-bottom:4px;color:var(--gray-600)}"));
+    client.println(F(".form-group input,.form-group select{width:100%;padding:10px;border:2px solid var(--gray-200);border-radius:8px;font-size:1rem}"));
+    client.println(F(".form-group input:focus{outline:none;border-color:var(--primary)}"));
+    client.println(F(".slider{width:100%;height:6px;border-radius:3px;background:var(--gray-200);margin:12px 0}"));
+    client.println(F(".log-container{max-height:300px;overflow-y:auto;background:var(--gray-50);border-radius:8px;padding:16px;margin:16px 0;font-family:'Courier New',monospace;font-size:0.85rem}"));
+    client.println(F(".log-entry{padding:8px;margin:4px 0;border-radius:4px;border-left:3px solid var(--primary)}"));
+    client.println(F(".metric-value{font-size:2rem;font-weight:800;color:var(--primary);text-align:center;margin-bottom:4px}"));
+    client.println(F(".metric-label{font-size:0.85rem;color:var(--gray-600);text-transform:uppercase;text-align:center;font-weight:600}"));
+    client.println(F(".nav-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px}"));
+    client.println(F(".nav-btn{background:#fff;border:2px solid var(--gray-200);color:var(--gray-600);padding:12px;border-radius:8px;font-weight:600;text-decoration:none;text-align:center;transition:all 0.2s ease}"));
+    client.println(F(".nav-btn:hover{border-color:var(--primary);color:var(--primary)}"));
+    client.println(F("@media(max-width:768px){.container{padding:16px}.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}.nav-grid{grid-template-columns:1fr}}"));
+    client.println(F(".extended-info{margin:32px 0}"));
+    client.println(F(".status-section{margin-bottom:32px;padding:20px;background:#f8fafc;border-radius:12px;border:1px solid var(--gray-200)}"));
+    client.println(F(".status-section h4{margin:0 0 16px 0;padding-bottom:8px;border-bottom:2px solid var(--gray-200);color:var(--gray-900);font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:8px}"));
+    client.println(F(".status-section h4 i{color:var(--primary)}"));
+    client.println(F(".status-section .status-item{padding:12px 0;margin:8px 0}"));
+    client.println(F(".status-section .status-item span:first-child{display:inline-block;width:65%;font-weight:600;color:var(--gray-700)}"));
+    client.println(F(".status-section .status-item span:last-child{display:inline-block;width:35%;text-align:right}"));
+
+    client.println(F("</style>"));
+}
+
+// Essential JavaScript
+void WebServer::sendUnifiedJS(WiFiClient& client) {
+    client.println(F("<script>"));
+
+    // AJAX function for API calls without page navigation
+    client.println(F("function api(endpoint, params='') {"));
+    client.println(F("  const url = params ? `/api/${endpoint}?${params}` : `/api/${endpoint}`;"));
+    client.println(F("  console.log('API call:', url);"));
+    client.println(F("  "));
+    client.println(F("  fetch(url)"));
+    client.println(F("    .then(response => response.json())"));
+    client.println(F("    .then(data => {"));
+    client.println(F("      console.log('Response:', data);"));
+    client.println(F("      showNotification(data.message || data.status || 'Command sent');"));
+    client.println(F("    })"));
+    client.println(F("    .catch(error => {"));
+    client.println(F("      console.error('Error:', error);"));
+    client.println(F("      showNotification('Error: ' + error.message, 'error');"));
+    client.println(F("    });"));
+    client.println(F("}"));
+
+    // ✅ ENHANCED: Real-time update function with system status AND extended info
+    client.println(F("function updateSensorData() {"));
+    client.println(F("  fetch('/api/sensor-data')"));
+    client.println(F("    .then(response => response.json())"));
+    client.println(F("    .then(data => {"));
+    client.println(F("      // Update basic sensor readings"));
+    client.println(F("      const frontDist = document.getElementById('front-distance');"));
+    client.println(F("      const rearDist = document.getElementById('rear-distance');"));
+    client.println(F("      const userPresent = document.getElementById('user-present');"));
+    client.println(F("      "));
+    client.println(F("      // ✅ FIX: Update system status elements"));
+    client.println(F("      const systemState = document.getElementById('system-state');"));
+    client.println(F("      const currentSpeed = document.getElementById('current-speed');"));
+    client.println(F("      const safetyStatus = document.getElementById('safety-status');"));
+    client.println(F("      "));
+    client.println(F("      // ✅ NEW: Update extended system info elements"));
+    client.println(F("      const frontSensorStatus = document.getElementById('front-sensor-status');"));
+    client.println(F("      const rearSensorStatus = document.getElementById('rear-sensor-status');"));
+    client.println(F("      const pressureSensorStatus = document.getElementById('pressure-sensor-status');"));
+    client.println(F("      const leftMotorStatus = document.getElementById('left-motor-status');"));
+    client.println(F("      const rightMotorStatus = document.getElementById('right-motor-status');"));
+    client.println(F("      const doorActuatorStatus = document.getElementById('door-actuator-status');"));
+    client.println(F("      const wifiSignalQuality = document.getElementById('wifi-signal-quality');"));
+    client.println(F("      const wifiSignalStrength = document.getElementById('wifi-signal-strength');"));
+    client.println(F("      const systemUptime = document.getElementById('system-uptime');"));
+    client.println(F("      const healthScore = document.getElementById('health-score');"));
+    client.println(F("      "));
+    client.println(F("      // Update all elements"));
+    client.println(F("      if (frontDist) frontDist.textContent = data.frontDistance + ' cm';"));
+    client.println(F("      if (rearDist) rearDist.textContent = data.rearDistance + ' cm';"));
+    client.println(F("      if (userPresent) userPresent.textContent = data.userPresent ? 'Yes' : 'No';"));
+    client.println(F("      if (systemState) systemState.textContent = data.systemState;"));
+    client.println(F("      if (currentSpeed) currentSpeed.textContent = data.currentSpeed;"));
+    client.println(F("      if (safetyStatus) safetyStatus.textContent = data.safetyStatus;"));
+    client.println(F("      "));
+    client.println(F("      // ✅ NEW: Update extended system info"));
+    client.println(F("      if (frontSensorStatus) {"));
+    client.println(F("        frontSensorStatus.textContent = data.frontSensorStatus;"));
+    client.println(F("        frontSensorStatus.className = 'status-value ' + (data.frontSensorStatus === 'OK' ? 'status-ok' : 'status-error');"));
+    client.println(F("      }"));
+    client.println(F("      if (rearSensorStatus) {"));
+    client.println(F("        rearSensorStatus.textContent = data.rearSensorStatus;"));
+    client.println(F("        rearSensorStatus.className = 'status-value ' + (data.rearSensorStatus === 'OK' ? 'status-ok' : 'status-error');"));
+    client.println(F("      }"));
+    client.println(F("      if (pressureSensorStatus) {"));
+    client.println(F("        pressureSensorStatus.textContent = data.pressureSensorStatus;"));
+    client.println(F("        pressureSensorStatus.className = 'status-value ' + (data.pressureSensorStatus === 'Responding' ? 'status-ok' : 'status-warning');"));
+    client.println(F("      }"));
+    client.println(F("      if (leftMotorStatus) {"));
+    client.println(F("        leftMotorStatus.textContent = data.leftMotorStatus;"));
+    client.println(F("        leftMotorStatus.className = 'status-value ' + (data.leftMotorStatus === 'Connected' ? 'status-ok' : 'status-warning');"));
+    client.println(F("      }"));
+    client.println(F("      if (rightMotorStatus) {"));
+    client.println(F("        rightMotorStatus.textContent = data.rightMotorStatus;"));
+    client.println(F("        rightMotorStatus.className = 'status-value ' + (data.rightMotorStatus === 'Connected' ? 'status-ok' : 'status-warning');"));
+    client.println(F("      }"));
+    client.println(F("      if (doorActuatorStatus) {"));
+    client.println(F("        doorActuatorStatus.textContent = data.doorActuatorStatus;"));
+    client.println(F("        doorActuatorStatus.className = 'status-value ' + (data.doorActuatorStatus === 'Operational' ? 'status-ok' : 'status-error');"));
+    client.println(F("      }"));
+    client.println(F("      if (wifiSignalQuality) {"));
+    client.println(F("        wifiSignalQuality.textContent = data.wifiSignalQuality;"));
+    client.println(F("        const signalClass = data.wifiSignalQuality === 'Excellent' || data.wifiSignalQuality === 'Good' ? 'status-ok' : 'status-warning';"));
+    client.println(F("        wifiSignalQuality.className = 'status-value ' + signalClass;"));
+    client.println(F("      }"));
+    client.println(F("      if (wifiSignalStrength) wifiSignalStrength.textContent = data.wifiSignalStrength;"));
+    client.println(F("      if (systemUptime) systemUptime.textContent = data.systemUptime;"));
+    client.println(F("      if (healthScore) {"));
+    client.println(F("        healthScore.textContent = data.healthScore + '%';"));
+    client.println(F("        const healthClass = data.healthScore >= 85 ? 'status-ok' : data.healthScore >= 70 ? 'status-warning' : 'status-error';"));
+    client.println(F("        healthScore.className = 'status-value ' + healthClass;"));
+    client.println(F("      }"));
+    client.println(F("      "));
+    client.println(F("      console.log('All data updated:', data);"));
+    client.println(F("    })"));
+    client.println(F("    .catch(error => console.error('Sensor update failed:', error));"));
+    client.println(F("}"));
+
+    // Auto-start updates on home page
+    client.println(F("document.addEventListener('DOMContentLoaded', function() {"));
+    client.println(F("  const path = window.location.pathname;"));
+    client.println(F("  if (path === '/') {"));
+    client.println(F("    // Start updates immediately"));
+    client.println(F("    updateSensorData();"));
+    client.println(F("    // Continue updating every 3 seconds"));
+    client.println(F("    setInterval(updateSensorData, 3000);"));
+    client.println(F("  }"));
+    client.println(F("});"));
+
+    // Form submission and notification functions (existing code)
+    client.println(F("function submitForm(form) {"));
+    client.println(F("  const data = new FormData(form);"));
+    client.println(F("  const params = new URLSearchParams(data).toString();"));
+    client.println(F("  api('config-update', params);"));
+    client.println(F("  return false;"));
+    client.println(F("}"));
+
+    client.println(F("function showNotification(message, type = 'info') {"));
+    client.println(F("  const notification = document.createElement('div');"));
+    client.println(F("  notification.style.cssText = `"));
+    client.println(F("    position: fixed; top: 20px; right: 20px; z-index: 9999;"));
+    client.println(F("    padding: 12px 20px; border-radius: 8px; color: white;"));
+    client.println(F("    font-weight: 600; max-width: 300px; opacity: 0;"));
+    client.println(F("    transition: opacity 0.3s ease;"));
+    client.println(F("    background: ${type === 'error' ? '#ef4444' : '#10b981'};"));
+    client.println(F("  `;"));
+    client.println(F("  notification.textContent = message;"));
+    client.println(F("  document.body.appendChild(notification);"));
+    client.println(F("  "));
+    client.println(F("  setTimeout(() => notification.style.opacity = '1', 100);"));
+    client.println(F("  setTimeout(() => {"));
+    client.println(F("    notification.style.opacity = '0';"));
+    client.println(F("    setTimeout(() => document.body.removeChild(notification), 300);"));
+    client.println(F("  }, 3000);"));
+    client.println(F("}"));
+
+    client.println(F("</script>"));
+}
+
+
+
+// Page template system for consistent layout
+void WebServer::sendPageTemplate(WiFiClient &client, const __FlashStringHelper *title,
+                                 const __FlashStringHelper *icon, void (WebServer::*contentMethod)(WiFiClient &))
+{
+    sendHttpHeader(client);
+
+    client.println(F("<!DOCTYPE html><html><head>"));
+    client.println(F("<meta charset='UTF-8'>"));
+    client.println(F("<meta name='viewport' content='width=device-width,initial-scale=1.0'>"));
+    client.print(F("<title>"));
+    client.print(title);
+    client.println(F(" - Wheelchair Swing</title>"));
+    client.println(F("<link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css' rel='stylesheet'>"));
+
+    sendUnifiedCSS(client);
+
+    client.println(F("</head><body><div class='container'>"));
+
+    // Header with navigation
+    client.println(F("<div class='header'>"));
+    client.print(F("<h1><i class='fas fa-"));
+    client.print(icon);
+    client.print(F("'></i> "));
+    client.print(title);
+    client.println(F("</h1>"));
+    client.println(F("<p><a href='/'>← Back to Dashboard</a></p>"));
+    client.println(F("</div>"));
+
+    // Navigation menu
+    sendNavigation(client);
+
+    // Page-specific content
+    (this->*contentMethod)(client);
+
+    client.println(F("</div>"));
+    sendUnifiedJS(client);
+    client.println(F("</body></html>"));
+}
+
+// Navigation menu
+void WebServer::sendNavigation(WiFiClient& client) {
+    client.println(F("<div class='nav-grid'>"));
+    client.println(F("<a href='/' class='nav-btn'><i class='fas fa-home'></i> Dashboard</a>"));
+    client.println(F("<a href='/control' class='nav-btn'><i class='fas fa-gamepad'></i> Control</a>"));
+    client.println(F("<a href='/config' class='nav-btn'><i class='fas fa-cog'></i> Config</a>"));
+    client.println(F("<a href='/motor-test' class='nav-btn'><i class='fas fa-cogs'></i> Motor Test</a>"));
+    client.println(F("<a href='/demo' class='nav-btn'><i class='fas fa-play-circle'></i> Demo</a>"));
+    client.println(F("</div>"));
+}
+
+
+// Home page implementation
+void WebServer::sendHomePage(WiFiClient &client)
+{
+    sendHttpHeader(client);
+
+    client.println(F("<!DOCTYPE html><html><head>"));
+    client.println(F("<meta charset='UTF-8'>"));
+    client.println(F("<meta name='viewport' content='width=device-width,initial-scale=1.0'>"));
+    client.println(F("<title>Wheelchair Swing Control</title>"));
+    client.println(F("<link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css' rel='stylesheet'>"));
+
+    sendUnifiedCSS(client);
+
+    client.println(F("</head><body><div class='container'>"));
+
+    // Main header
+    client.println(F("<div class='header'>"));
+    client.println(F("<h1><i class='fas fa-wheelchair'></i> Wheelchair Swing Control</h1>"));
+    client.println(F("<p>Advanced Safety & Control System</p>"));
+    client.println(F("</div>"));
+
+    sendNavigation(client);
+    sendHomeContent(client);
+
+    client.println(F("</div>"));
+    sendUnifiedJS(client);
+    client.println(F("</body></html>"));
+}
+
+void WebServer::sendHomeContent(WiFiClient &client)
+{
     RuntimeConfig& config = RuntimeConfig::getInstance();
-    config.setWarningDistance(OBSTACLE_DISTANCE_CM);
-    config.setCriticalDistance(CRITICAL_DISTANCE_CM);
-    config.save(); // Save the reset values
+    // System metrics cards
+    client.println(F("<div class='grid grid-4'>"));
 
+    // System state card
+    client.println(F("<div class='card'>"));
+    client.println(F("<div class='metric-value'>"));
+    String currentState = _stateMachine->getStateString();
+    client.print(currentState);
+    client.println(F("</div>"));
+    client.println(F("<div class='metric-label'>System State</div>"));
+    client.println(F("</div>"));
 
-    _safetyTestActive = false;
-    _currentSafetyTest = "";
+    // Current speed card
+    client.println(F("<div class='card'>"));
+    client.println(F("<div class='metric-value'>"));
+    client.print(_stateMachine->getSpeedString());
+    client.println(F("</div>"));
+    client.println(F("<div class='metric-label'>Current Speed</div>"));
+    client.println(F("</div>"));
 
-    Serial.println("Threshold test completed");
+    // Safety status card
+    client.println(F("<div class='card'>"));
+    client.println(F("<div class='metric-value status-ok'>"));
+    client.print(_safetyMonitor->getStatusString());
+    client.println(F("</div>"));
+    client.println(F("<div class='metric-label'>Safety Status</div>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+
+    // Real-time sensor data
+    client.println(F("<div class='grid grid-2'>"));
+
+    // Sensor readings card
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-radar'></i> Real-time Sensors</h3>"));
+
+    // Front distance with ID
+    String frontDistStr = String(_safetyMonitor->getFrontDistance(), 1) + " cm";
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Front Distance:</span>"));
+    client.print(F("<span class='status-value' id='front-distance'>"));
+    client.print(frontDistStr);
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Rear distance with ID
+    String rearDistStr = String(_safetyMonitor->getRearDistance(), 1) + " cm";
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Rear Distance:</span>"));
+    client.print(F("<span class='status-value' id='rear-distance'>"));
+    client.print(rearDistStr);
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // User present with ID
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>User Present:</span>"));
+    client.print(F("<span class='status-value' id='user-present'>"));
+    client.print(_safetyMonitor->isUserPresent() ? F("Yes") : F("No"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+
+    // ✅ ALSO UPDATE SYSTEM STATUS WITH ID ATTRIBUTES:
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-tachometer-alt'></i> System Status</h3>"));
+
+    // System state with ID
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>State:</span>"));
+    client.print(F("<span class='status-value' id='system-state'>"));
+    client.print(_stateMachine->getStateString());
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Current speed with ID
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Speed:</span>"));
+    client.print(F("<span class='status-value' id='current-speed'>"));
+    client.print(_stateMachine->getSpeedString());
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Safety status with ID
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Safety:</span>"));
+    client.print(F("<span class='status-value' id='safety-status'>"));
+    client.print(_safetyMonitor->getStatusString());
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+
+    // Runtime configuration status
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-sliders-h'></i> Configuration Status</h3>"));
+
+    String frontWarningStr = String(config.getFrontWarningDistance(), 1) + " cm";
+    sendStatusItem(client, F("Front Warning"), frontWarningStr);
+
+    String speedLowStr = String(config.getSpeedLow()) + " RPM";
+    sendStatusItem(client, F("Speed Low"), speedLowStr);
+
+    sendStatusItem(client, F("Audio Feedback"), config.isAudioFeedbackEnabled() ? F("Enabled") : F("Disabled"));
+    sendStatusItem(client, F("Config Valid"), F("Yes"));
+
+    client.println(F("</div>"));
+
+    // ==== Extended system info card ====
+    client.println(F("<div class='card extended-info'>"));
+    client.println(F("<h3><i class='fas fa-info-circle'></i> Extended System Information</h3>"));
+
+    // Sensor Health Section
+    client.println(F("<div class='status-section'>"));
+    client.println(F("<h4><i class='fas fa-microchip'></i> Sensor Health</h4>"));
+
+    // Front distance sensor
+    float frontDist = _safetyMonitor->getFrontDistance();
+    bool frontSensorOK = (frontDist > 0 && frontDist < 400);
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Front Distance Sensor</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(frontSensorOK ? F("status-ok' id='front-sensor-status'>OK") : F("status-error' id='front-sensor-status'>Error"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Rear distance sensor
+    float rearDist = _safetyMonitor->getRearDistance();
+    bool rearSensorOK = (rearDist > 0 && rearDist < 400);
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Rear Distance Sensor</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(rearSensorOK ? F("status-ok' id='rear-sensor-status'>OK") : F("status-error' id='rear-sensor-status'>Error"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Pressure sensor
+    bool pressureSensorOK = _safetyMonitor->isUserPresent();
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Pressure Sensor</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(pressureSensorOK ? F("status-ok' id='pressure-sensor-status'>Responding") : F("status-warning' id='pressure-sensor-status'>No Signal"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+
+    // Motor & Actuator Health Section
+    client.println(F("<div class='status-section'>"));
+    client.println(F("<h4><i class='fas fa-cogs'></i> Motor & Actuator Health</h4>"));
+
+    // Left stepper motor
+    bool leftMotorOK = (_leftStepper != nullptr);
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Left Stepper Motor</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(leftMotorOK ? F("status-ok' id='left-motor-status'>Connected") : F("status-warning' id='left-motor-status'>Disconnected"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Right stepper motor
+    bool rightMotorOK = (_rightStepper != nullptr);
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Right Stepper Motor</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(rightMotorOK ? F("status-ok' id='right-motor-status'>Connected") : F("status-warning' id='right-motor-status'>Disconnected"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Door actuator
+    bool doorActuatorOK = (_doorActuator != nullptr);
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Door Actuator</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(doorActuatorOK ? F("status-ok' id='door-actuator-status'>Operational") : F("status-error' id='door-actuator-status'>Error"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+
+    // Network Status Section
+    client.println(F("<div class='status-section'>"));
+    client.println(F("<h4><i class='fas fa-wifi'></i> Network Status</h4>"));
+
+    // WiFi signal quality
+    int signalStrength = WiFi.RSSI();
+    String signalQuality = "Poor";
+    String signalClass = "status-error";
+    if (signalStrength > -50) { signalQuality = "Excellent"; signalClass = "status-ok"; }
+    else if (signalStrength > -60) { signalQuality = "Good"; signalClass = "status-ok"; }
+    else if (signalStrength > -70) { signalQuality = "Fair"; signalClass = "status-warning"; }
+
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>WiFi Signal Quality</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(signalClass);
+    client.print(F("' id='wifi-signal-quality'>"));
+    client.print(signalQuality);
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>IP Address</span>"));
+    client.print(F("<span class='status-value'>"));
+    client.print(WiFi.localIP().toString());
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+
+    // System Performance Section
+    client.println(F("<div class='status-section'>"));
+    client.println(F("<h4><i class='fas fa-tachometer-alt'></i> System Performance</h4>"));
+
+    // System uptime
+    unsigned long uptime = millis() / 1000;
+    unsigned long hours = uptime / 3600;
+    unsigned long minutes = (uptime % 3600) / 60;
+    String uptimeStr = String(hours) + "h " + String(minutes) + "m";
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>System Uptime</span>"));
+    client.print(F("<span class='status-value' id='system-uptime'>"));
+    client.print(uptimeStr);
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Configuration status
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Configuration</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(config.isValid() ? F("status-ok'>Valid") : F("status-error'>Invalid"));
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+
+    // Overall health score
+    int healthScore = 100;
+    if (!frontSensorOK) healthScore -= 15;
+    if (!rearSensorOK) healthScore -= 15;
+    if (!pressureSensorOK) healthScore -= 10;
+    if (!leftMotorOK) healthScore -= 15;
+    if (!rightMotorOK) healthScore -= 15;
+    if (signalStrength < -70) healthScore -= 10;
+    if (!config.isValid()) healthScore -= 10;
+
+    String healthClass = "status-ok";
+    if (healthScore < 70) healthClass = "status-error";
+    else if (healthScore < 85) healthClass = "status-warning";
+
+    client.println(F("<div class='status-item'>"));
+    client.println(F("<span>Overall Health Score</span>"));
+    client.print(F("<span class='status-value "));
+    client.print(healthClass);
+    client.print(F("' id='health-score'>"));
+    client.print(healthScore);
+    client.println(F("%</span>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    // Quick control buttons
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-bolt'></i> Quick Controls</h3>"));
+    client.println(F("<div class='grid grid-4'>"));
+
+    sendButton(client, F("<i class='fas fa-play'></i> Start"), "/api/start", "success");
+    sendButton(client, F("<i class='fas fa-stop'></i> Stop"), "/api/stop", "warning");
+    sendButton(client, F("<i class='fas fa-door-open'></i> Door"), "/api/door-toggle", "primary");
+    sendButton(client, F("<i class='fas fa-exclamation-triangle'></i> Emergency"), "/api/emergency", "danger");
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
 }
 
-// Measure response time for a safety event
-void WebServer::measureResponseTime(WiFiClient& client, String params) {
-    // Extract parameters: -response-time?event=obstacle&iterations=5
-    int eventStart = params.indexOf("event=") + 6;
-    int eventEnd = params.indexOf("&", eventStart);
-    String eventType = params.substring(eventStart, eventEnd);
+// Control page
+void WebServer::sendControlPage(WiFiClient &client)
+{
+    sendPageTemplate(client, F("Control Panel"), F("gamepad"), &WebServer::sendControlContent);
+}
 
-    int iterStart = params.indexOf("iterations=") + 11;
-    int iterations = params.substring(iterStart).toInt();
+void WebServer::sendControlContent(WiFiClient &client)
+{
+    // Motion controls
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-gamepad'></i> Motion Controls</h3>"));
+    client.println(F("<div class='grid grid-4'>"));
 
-    if (iterations <= 0 || iterations > 20) {
-        iterations = 5; // Default to 5 iterations
+    sendButton(client, F("<i class='fas fa-play'></i> Start Swing"), "/api/start", "success");
+    sendButton(client, F("<i class='fas fa-stop'></i> Stop Swing"), "/api/stop", "warning");
+    sendButton(client, F("<i class='fas fa-arrow-up'></i> Speed Up"), "/api/speed-up", "primary");
+    sendButton(client, F("<i class='fas fa-arrow-down'></i> Speed Down"), "/api/speed-down", "primary");
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    // Door controls
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-door-open'></i> Door Controls</h3>"));
+    client.println(F("<div class='grid grid-2'>"));
+
+    sendButton(client, F("<i class='fas fa-door-open'></i> Open Door"), "/api/door-open", "primary");
+    sendButton(client, F("<i class='fas fa-door-closed'></i> Close Door"), "/api/door-close", "primary");
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    // Emergency controls
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-exclamation-triangle'></i> Emergency Controls</h3>"));
+    client.println(F("<div class='grid grid-2'>"));
+
+    sendButton(client, F("<i class='fas fa-exclamation-triangle'></i> Emergency Stop"), "/api/emergency", "danger");
+    sendButton(client, F("<i class='fas fa-undo'></i> Reset System"), "/api/reset", "warning");
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+}
+
+// Helper methods for building UI components
+void WebServer::sendCard(WiFiClient &client, const __FlashStringHelper *title, const __FlashStringHelper *icon)
+{
+    client.println(F("<div class='card'>"));
+    if (title)
+    {
+        client.print(F("<h3>"));
+        if (icon)
+        {
+            client.print(F("<i class='fas fa-"));
+            client.print(icon);
+            client.print(F("'></i> "));
+        }
+        client.print(title);
+        client.println(F("</h3>"));
     }
+}
 
-    _safetyTestActive = true;
-    _currentSafetyTest = "response_" + eventType;
+void WebServer::sendCardEnd(WiFiClient &client)
+{
+    client.println(F("</div>"));
+}
 
-    String response = "{\"status\":\"started\",\"test\":\"response_time\",\"event\":\"" + eventType +
-                     "\",\"iterations\":" + String(iterations) + "}";
-    sendJsonResponse(client, response);
+void WebServer::sendButton(WiFiClient& client, const __FlashStringHelper* text, const char* url, const char* type) {
+    if (strstr(url, "/api/") == url) {
+        // This is an API endpoint - use JavaScript
+        String endpoint = String(url).substring(5); // Remove "/api/" prefix
+        client.print(F("<button onclick='api(\""));
+        client.print(endpoint);
+        client.print(F("\")' class='btn btn-"));
+        client.print(type);
+        client.print(F("'>"));
+        client.print(text);
+        client.println(F("</button>"));
+    } else {
+        // This is a regular page link - use href
+        client.print(F("<a href='"));
+        client.print(url);
+        client.print(F("' class='btn btn-"));
+        client.print(type);
+        client.print(F("'>"));
+        client.print(text);
+        client.println(F("</a>"));
+    }
+}
 
-    // Perform multiple response time measurements
-    unsigned long totalResponseTime = 0;
-    int successCount = 0;
 
-    for (int i = 0; i < iterations; i++) {
-        // Reset to IDLE state before each test
+void WebServer::sendStatusItem(WiFiClient &client, const __FlashStringHelper *label, const __FlashStringHelper *value, const char *statusClass)
+{
+    client.println(F("<div class='status-item'>"));
+    client.print(F("<span>"));
+    client.print(label);
+    client.print(F(":</span>"));
+    client.print(F("<span class='status-value"));
+    if (statusClass && strlen(statusClass) > 0)
+    {
+        client.print(F(" "));
+        client.print(statusClass);
+    }
+    client.print(F("'>"));
+    client.print(value);
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+}
+
+void WebServer::sendStatusItem(WiFiClient &client, const __FlashStringHelper *label, const String &value, const char *statusClass)
+{
+    client.println(F("<div class='status-item'>"));
+    client.print(F("<span>"));
+    client.print(label);
+    client.print(F(":</span>"));
+    client.print(F("<span class='status-value"));
+    if (statusClass && strlen(statusClass) > 0)
+    {
+        client.print(F(" "));
+        client.print(statusClass);
+    }
+    client.print(F("'>"));
+    client.print(value);
+    client.println(F("</span>"));
+    client.println(F("</div>"));
+}
+
+void WebServer::sendFormField(WiFiClient &client, const char *type, const char *name, const char *label, const char *value)
+{
+    client.println(F("<div class='form-group'>"));
+    client.print(F("<label>"));
+    client.print(label);
+    client.print(F(":</label>"));
+    client.print(F("<input type='"));
+    client.print(type);
+    client.print(F("' name='"));
+    client.print(name);
+    client.print(F("'"));
+    if (value && strlen(value) > 0)
+    {
+        client.print(F(" value='"));
+        client.print(value);
+        client.print(F("'"));
+    }
+    client.println(F(">"));
+    client.println(F("</div>"));
+}
+
+// Configuration page
+void WebServer::sendConfigPage(WiFiClient &client)
+{
+    sendPageTemplate(client, F("Configuration"), F("cog"), &WebServer::sendConfigContent);
+}
+
+void WebServer::sendConfigContent(WiFiClient &client)
+{
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+    // Safety configuration form
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-shield-alt'></i> Safety Configuration</h3>"));
+    client.println(F("<form onsubmit='return submitForm(this)'>"));
+
+    client.println(F("<div class='grid grid-2'>"));
+
+    // Distance thresholds
+    client.println(F("<div>"));
+    client.println(F("<h4>Distance Thresholds</h4>"));
+
+    sendFormField(client, "number", "frontWarning", "Front Warning (cm)", String(config.getFrontWarningDistance()).c_str());
+    sendFormField(client, "number", "frontCritical", "Front Critical (cm)", String(config.getFrontCriticalDistance()).c_str());
+    sendFormField(client, "number", "rearWarning", "Rear Warning (cm)", String(config.getRearWarningDistance()).c_str());
+    sendFormField(client, "number", "rearCritical", "Rear Critical (cm)", String(config.getRearCriticalDistance()).c_str());
+
+    client.println(F("</div>"));
+
+    // Pressure settings
+    client.println(F("<div>"));
+    client.println(F("<h4>Pressure Settings</h4>"));
+
+    sendFormField(client, "number", "pressureThreshold", "Pressure Threshold", String(config.getPressureThreshold()).c_str());
+
+    client.println(F("<div class='form-group'>"));
+    client.println(F("<label>Audio Feedback:</label>"));
+    client.println(F("<select name='audioFeedback'>"));
+    client.print(F("<option value='true'"));
+    if (config.isAudioFeedbackEnabled())
+        client.print(F(" selected"));
+    client.println(F(">Enabled</option>"));
+    client.print(F("<option value='false'"));
+    if (!config.isAudioFeedbackEnabled())
+        client.print(F(" selected"));
+    client.println(F(">Disabled</option>"));
+    client.println(F("</select>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    client.println(F("<button type='submit' class='btn btn-primary'><i class='fas fa-save'></i> Save Safety Settings</button>"));
+    client.println(F("</form>"));
+    client.println(F("</div>"));
+
+    // Motor configuration form
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-cogs'></i> Motor Configuration</h3>"));
+    client.println(F("<form onsubmit='return submitForm(this)'>"));
+
+    client.println(F("<div class='grid grid-3'>"));
+
+    sendFormField(client, "number", "speedLow", "Low Speed (RPM)", String(config.getSpeedLow()).c_str());
+    sendFormField(client, "number", "speedMedium", "Medium Speed (RPM)", String(config.getSpeedMedium()).c_str());
+    sendFormField(client, "number", "speedHigh", "High Speed (RPM)", String(config.getSpeedHigh()).c_str());
+
+    client.println(F("</div>"));
+
+    client.println(F("<button type='submit' class='btn btn-primary'><i class='fas fa-save'></i> Save Motor Settings</button>"));
+    client.println(F("</form>"));
+    client.println(F("</div>"));
+
+    // System configuration form
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-sliders-h'></i> System Configuration</h3>"));
+    client.println(F("<form onsubmit='return submitForm(this)'>"));
+
+    client.println(F("<div class='grid grid-2'>"));
+
+    sendFormField(client, "number", "doorTimeout", "Door Timeout (seconds)", String(config.getDoorTimeoutMs() / 1000).c_str());
+    sendFormField(client, "range", "buzzerVolume", "Buzzer Volume (0-10)", String(config.getBuzzerVolume()).c_str());
+
+    client.println(F("</div>"));
+
+    client.println(F("<button type='submit' class='btn btn-primary'><i class='fas fa-save'></i> Save System Settings</button>"));
+    client.println(F("</form>"));
+    client.println(F("</div>"));
+
+    // Configuration management
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-tools'></i> Configuration Management</h3>"));
+    client.println(F("<div class='grid grid-3'>"));
+
+    sendButton(client, F("<i class='fas fa-download'></i> Export Config"), "/api/config-export", "success");
+    sendButton(client, F("<i class='fas fa-undo'></i> Factory Reset"), "/api/factory-reset", "warning");
+    sendButton(client, F("<i class='fas fa-sync-alt'></i> Reload Page"), "/config", "primary");
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+}
+
+// Main API handler - consolidated routing
+void WebServer::handleAPI(WiFiClient &client, String endpoint, String params)
+{
+    Serial.print(F("API Request: "));
+    Serial.print(endpoint);
+    Serial.print(F(" Params: "));
+    Serial.println(params);
+
+    if (endpoint == "sensor-data") {
+        // Basic sensor data
+        String sensorJson = "{";
+        sensorJson += "\"frontDistance\":" + String(_safetyMonitor->getFrontDistance(), 1) + ",";
+        sensorJson += "\"rearDistance\":" + String(_safetyMonitor->getRearDistance(), 1) + ",";
+        sensorJson += "\"userPresent\":" + String(_safetyMonitor->isUserPresent() ? "true" : "false") + ",";
+
+        // System status data
+        sensorJson += "\"systemState\":\"" + String(_stateMachine->getStateString()) + "\",";
+        sensorJson += "\"currentSpeed\":\"" + String(_stateMachine->getSpeedString()) + "\",";
+        sensorJson += "\"safetyStatus\":\"" + String(_safetyMonitor->getStatusString()) + "\",";
+
+        // Extended system info data
+        float frontDist = _safetyMonitor->getFrontDistance();
+        float rearDist = _safetyMonitor->getRearDistance();
+        bool frontSensorOK = (frontDist > 0 && frontDist < 400);
+        bool rearSensorOK = (rearDist > 0 && rearDist < 400);
+        bool pressureSensorOK = _safetyMonitor->isUserPresent();
+        bool leftMotorOK = (_leftStepper != nullptr);
+        bool rightMotorOK = (_rightStepper != nullptr);
+        bool doorActuatorOK = (_doorActuator != nullptr);
+
+        sensorJson += "\"frontSensorStatus\":\"" + String(frontSensorOK ? "OK" : "Error") + "\",";
+        sensorJson += "\"rearSensorStatus\":\"" + String(rearSensorOK ? "OK" : "Error") + "\",";
+        sensorJson += "\"pressureSensorStatus\":\"" + String(pressureSensorOK ? "Responding" : "No Signal") + "\",";
+        sensorJson += "\"leftMotorStatus\":\"" + String(leftMotorOK ? "Connected" : "Disconnected") + "\",";
+        sensorJson += "\"rightMotorStatus\":\"" + String(rightMotorOK ? "Connected" : "Disconnected") + "\",";
+        sensorJson += "\"doorActuatorStatus\":\"" + String(doorActuatorOK ? "Operational" : "Error") + "\",";
+
+        // WiFi and system metrics
+        int signalStrength = WiFi.RSSI();
+        String signalQuality = "Poor";
+        if (signalStrength > -50) signalQuality = "Excellent";
+        else if (signalStrength > -60) signalQuality = "Good";
+        else if (signalStrength > -70) signalQuality = "Fair";
+
+        sensorJson += "\"wifiSignalQuality\":\"" + signalQuality + "\",";
+        sensorJson += "\"wifiSignalStrength\":\"" + String(signalStrength) + " dBm\",";
+
+        // System uptime
+        unsigned long uptime = millis() / 1000;
+        unsigned long hours = uptime / 3600;
+        unsigned long minutes = (uptime % 3600) / 60;
+        String uptimeStr = String(hours) + "h " + String(minutes) + "m";
+        sensorJson += "\"systemUptime\":\"" + uptimeStr + "\",";
+
+        // Health score calculation
+        int healthScore = 100;
+        if (!frontSensorOK) healthScore -= 15;
+        if (!rearSensorOK) healthScore -= 15;
+        if (!pressureSensorOK) healthScore -= 10;
+        if (!leftMotorOK) healthScore -= 15;
+        if (!rightMotorOK) healthScore -= 15;
+        if (!doorActuatorOK) healthScore -= 10;
+        if (signalStrength < -70) healthScore -= 10;
+
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        if (!config.isValid()) healthScore -= 10;
+
+        sensorJson += "\"healthScore\":" + String(healthScore);
+        sensorJson += "}";
+
+        sendJsonResponse(client, sensorJson);
+        return;
+    } else if (endpoint.startsWith("demo")) {
+        handleDemoAPI(client, endpoint.substring(4));
+    } else if (endpoint.startsWith("motor-test")) {
+        handleMotorTestAPI(client, endpoint.substring(11));
+    } else if (endpoint == "config-update") {
+        handleConfigUpdate(client, params);
+    } else if (endpoint == "config-export") {
+        exportConfiguration(client);
+        return;
+    } else if (endpoint == "factory-reset") {
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        config.factoryReset();
+        sendJsonResponse(client, F("{\"status\":\"factory_reset_complete\"}"));
+    } else {
+        handleControlCommand(client, endpoint);
+    }
+}
+
+// Control command handler
+void WebServer::handleControlCommand(WiFiClient &client, String command)
+{
+    bool success = true;
+    String message = "Command executed: " + command;
+
+    if (command == "start")
+    {
+        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
+    }
+    else if (command == "stop")
+    {
         _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-        delay(500); // Give time to stabilize
-
-        // Start measurement
-        _safetyTestStartTime = micros();
-
-        // Trigger appropriate safety event
-        bool success = false;
-        if (eventType == "obstacle") {
-            success = simulateObstacle(5.0, "front"); // Critical distance
-        } else if (eventType == "user") {
-            success = simulateUserDeparture();
-        } else if (eventType == "stall") {
-            success = simulateMotorStall();
-        }
-
-        // Wait for state change or timeout
-        unsigned long startWait = millis();
-        while (_stateMachine->getCurrentState() == StateMachine::STATE_IDLE &&
-               millis() - startWait < 2000) {
-            delay(10);
-        }
-
-        _safetyTestEndTime = micros();
-        unsigned long responseTime = (_safetyTestEndTime - _safetyTestStartTime) / 1000; // Convert to ms
-
-        // Log this iteration
-        String iterDescription = "Response time test #" + String(i + 1) +
-                                " for " + eventType + " event";
-        logSafetyEvent("response", iterDescription,
-                       success ? "SUCCESS" : "FAILED", responseTime);
-
-        if (success) {
-            totalResponseTime += responseTime;
-            successCount++;
-        }
-
-        // Allow system to recover between tests
-        delay(1000);
+    }
+    else if (command == "emergency")
+    {
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
+        message = "Emergency stop activated";
+    }
+    else if (command == "reset")
+    {
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY_RESET);
+        message = "System reset";
+    }
+    else if (command == "speed-up")
+    {
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
+    }
+    else if (command == "speed-down")
+    {
+        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
+    }
+    else if (command == "door-open")
+    {
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPENED);
+    }
+    else if (command == "door-close")
+    {
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_CLOSED);
+    }
+    else if (command == "door-toggle")
+    {
+        // Toggle door based on current state
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+    }
+    else
+    {
+        success = false;
+        message = "Unknown command: " + command;
     }
 
-    // Calculate average response time
-    unsigned long avgResponseTime = (successCount > 0) ? totalResponseTime / successCount : 0;
-
-    // Log summary
-    String summaryDescription = "Response time test summary for " + eventType +
-                              " event (" + String(successCount) + "/" + String(iterations) + " successful)";
-    logSafetyEvent("response_summary", summaryDescription, "COMPLETE", avgResponseTime);
-
-    _safetyTestActive = false;
-    _currentSafetyTest = "";
-
-    Serial.print("Response time test completed. Average: ");
-    Serial.print(avgResponseTime);
-    Serial.println(" ms");
-}
-
-// Run automated test sequence
-void WebServer::runAutomatedTestSequence(WiFiClient& client) {
-    _safetyTestActive = true;
-    _currentSafetyTest = "automated_sequence";
-    _safetyTestStartTime = millis();
-    _safetyTestStep = 0;
-
-    String response = "{\"status\":\"started\",\"test\":\"automated_sequence\"}";
-    sendJsonResponse(client, response);
-
-    // Log start of test sequence
-    logSafetyEvent("automated_test", "Starting automated safety test sequence", "STARTED", 0);
-
-    // Step 1: Front obstacle detection
-    _safetyTestStep = 1;
-    simulateObstacle(15.0, "front");
-    delay(2000);
-    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
-    delay(1000);
-
-    // Step 2: Rear obstacle detection
-    _safetyTestStep = 2;
-    simulateObstacle(15.0, "rear");
-    delay(2000);
-    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
-    delay(1000);
-
-    // Step 3: User departure detection
-    _safetyTestStep = 3;
-    // First put into swinging state
-    _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-    delay(1000);
-    simulateUserDeparture();
-    delay(2000);
-    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
-    delay(1000);
-
-    // Step 4: Motor stall detection
-    _safetyTestStep = 4;
-    // First put into swinging state
-    _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-    delay(1000);
-    simulateMotorStall();
-    delay(2000);
-    _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED); // Reset
-    delay(1000);
-
-    // Step 5: Emergency response time
-    _safetyTestStep = 5;
-    measureResponseTime(client, "-response-time?event=obstacle&iterations=3");
-    delay(1000);
-
-    // Log completion of test sequence
-    logSafetyEvent("automated_test", "Automated safety test sequence completed", "COMPLETED", 0);
-
-    _safetyTestActive = false;
-    _currentSafetyTest = "";
-
-    Serial.println("Automated test sequence completed");
-}
-
-// Get current safety test status
-void WebServer::getSafetyTestStatus(WiFiClient& client) {
-    String response = "{";
-    response += "\"active\":" + String(_safetyTestActive ? "true" : "false") + ",";
-    response += "\"test_type\":\"" + _currentSafetyTest + "\",";
-    response += "\"override_enabled\":" + String(_safetyOverrideEnabled ? "true" : "false") + ",";
-
-    if (_safetyTestActive) {
-        unsigned long elapsed = millis() - _safetyTestStartTime;
-        response += "\"elapsed\":" + String(elapsed) + ",";
-        response += "\"step\":" + String(_safetyTestStep) + ",";
-        response += "\"threshold\":" + String(_safetyTestThreshold);
-    } else {
-        response += "\"elapsed\":0,\"step\":0,\"threshold\":0";
-    }
-
-    if (_safetyOverrideEnabled) {
-        unsigned long remainingTime = (_safetyOverrideTimeout > millis()) ?
-                                    (_safetyOverrideTimeout - millis()) / 1000 : 0;
-        response += ",\"override_timeout\":" + String(remainingTime);
-    }
-
-    response += "}";
-    sendJsonResponse(client, response);
-}
-
-// Get safety event logs
-void WebServer::getSafetyEventLogs(WiFiClient& client) {
-    String response = "{\"logs\":[";
-
-    bool first = true;
-    for (uint8_t i = 0; i < MAX_SAFETY_LOGS; i++) {
-        if (_safetyEventLogs[i].timestamp > 0) {
-            if (!first) {
-                response += ",";
-            }
-            first = false;
-
-            response += "{";
-            response += "\"timestamp\":" + String(_safetyEventLogs[i].timestamp) + ",";
-            response += "\"event\":\"" + _safetyEventLogs[i].eventType + "\",";
-            response += "\"description\":\"" + _safetyEventLogs[i].description + "\",";
-            response += "\"status\":\"" + _safetyEventLogs[i].status + "\",";
-            response += "\"response_time\":" + String(_safetyEventLogs[i].responseTime);
-            response += "}";
-        }
-    }
-
-    response += "]}";
-    sendJsonResponse(client, response);
-}
-
-// Toggle safety override mode
-void WebServer::toggleSafetyOverride(WiFiClient& client, bool enable) {
-    if (enable) {
-        _safetyOverrideEnabled = true;
-        _safetyOverrideTimeout = millis() + (5 * 60 * 1000); // 5 minute timeout
-
-        // Log safety override
-        logSafetyEvent("override", "Safety override mode enabled", "WARNING", 0);
-
-        String response = "{\"status\":\"enabled\",\"override_timeout\":300}"; // 300 seconds
+    if (success)
+    {
+        String response = "{\"status\":\"success\",\"message\":\"" + message + "\"}";
         sendJsonResponse(client, response);
-
-        Serial.println("Safety override enabled for testing (5 minute timeout)");
-    } else {
-        _safetyOverrideEnabled = false;
-
-        // Log safety override disabled
-        logSafetyEvent("override", "Safety override mode disabled", "INFO", 0);
-
-        sendJsonResponse(client, "{\"status\":\"disabled\"}");
-
-        Serial.println("Safety override disabled");
+    }
+    else
+    {
+        String response = "{\"error\":\"" + message + "\"}";
+        sendJsonResponse(client, response);
     }
 }
 
-// Reset safety logs
-void WebServer::resetSafetyLogs(WiFiClient& client) {
-    for (uint8_t i = 0; i < MAX_SAFETY_LOGS; i++) {
-        _safetyEventLogs[i].timestamp = 0;
-    }
-    _safetyLogIndex = 0;
+// Configuration update handler
+void WebServer::handleConfigUpdate(WiFiClient &client, String params)
+{
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    bool success = false;
+    String errorMessage = "";
 
-    sendJsonResponse(client, "{\"status\":\"logs_reset\"}");
-    Serial.println("Safety logs reset");
+    // Parse URL-encoded parameters
+    int paramStart = 0;
+    while (paramStart < params.length())
+    {
+        int equalPos = params.indexOf('=', paramStart);
+        if (equalPos < 0)
+            break;
+
+        int ampPos = params.indexOf('&', equalPos);
+        if (ampPos < 0)
+            ampPos = params.length();
+
+        String key = params.substring(paramStart, equalPos);
+        String value = params.substring(equalPos + 1, ampPos);
+
+        // URL decode value (basic implementation)
+        value.replace("%20", " ");
+        value.replace("%2B", "+");
+
+        // Update configuration based on key
+        if (key == "frontWarning")
+        {
+            success = config.setWarningDistance(value.toFloat());
+        }
+        else if (key == "frontCritical")
+        {
+            success = config.setCriticalDistance(value.toFloat());
+        }
+        else if (key == "rearWarning")
+        {
+            success = config.setWarningDistance(value.toFloat());
+        }
+        else if (key == "rearCritical")
+        {
+            success = config.setCriticalDistance(value.toFloat());
+        }
+        else if (key == "pressureThreshold")
+        {
+            success = config.setPressureThreshold(value.toInt());
+        }
+        else if (key == "speedLow")
+        {
+            success = config.setSpeedLow(value.toInt());
+        }
+        else if (key == "speedMedium")
+        {
+            success = config.setSpeedMedium(value.toInt());
+        }
+        else if (key == "speedHigh")
+        {
+            success = config.setSpeedHigh(value.toInt());
+        }
+        else if (key == "doorTimeout")
+        {
+            success = config.setDoorTimeoutMs(value.toInt() * 1000); // Convert to ms
+        }
+        else if (key == "buzzerVolume")
+        {
+            success = config.setBuzzerVolume(value.toInt());
+        }
+        else if (key == "audioFeedback")
+        {
+            config.setAudioFeedbackEnabled(value == "true");
+            success = true;
+        }
+        else if (key == "voiceRecognition")
+        {
+            config.setVoiceRecognitionEnabled(value == "true");
+            success = true;
+        }
+        else
+        {
+            errorMessage = "Unknown configuration key: " + key;
+        }
+
+        if (!success && errorMessage.length() == 0)
+        {
+            errorMessage = "Invalid value for " + key + ": " + value;
+            break;
+        }
+
+        paramStart = ampPos + 1;
+    }
+
+    if (success)
+    {
+        sendJsonResponse(client, F("{\"status\":\"success\",\"message\":\"Configuration updated and saved\"}"));
+    }
+    else
+    {
+        String response = "{\"error\":\"" + errorMessage + "\"}";
+        sendJsonResponse(client, response);
+    }
 }
 
-// Log a safety event
-void WebServer::logSafetyEvent(String eventType, String description, String status, unsigned long responseTime) {
+// Motor testing page
+void WebServer::sendMotorTestPage(WiFiClient &client)
+{
+    sendPageTemplate(client, F("Motor Testing"), F("cogs"), &WebServer::sendMotorTestContent);
+}
+
+void WebServer::sendMotorTestContent(WiFiClient &client)
+{
+    // Motor status display
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-tachometer-alt'></i> Motor Status</h3>"));
+
+    client.println(F("<div class='grid grid-2'>"));
+
+    // Left motor status
+    client.println(F("<div>"));
+    client.println(F("<h4>Left Motor</h4>"));
+    String leftPosStr = String(_testState.leftMotorPosition) + " steps";
+    sendStatusItem(client, F("Position"), leftPosStr);
+    sendStatusItem(client, F("Status"), _testState.motorTestActive && _testState.currentMotorTest.indexOf("left") >= 0 ? F("Testing") : F("Idle"));
+    client.println(F("</div>"));
+
+    // Right motor status
+    client.println(F("<div>"));
+    client.println(F("<h4>Right Motor</h4>"));
+    String rightPosStr = String(_testState.rightMotorPosition) + " steps";
+    sendStatusItem(client, F("Position"), rightPosStr);
+    sendStatusItem(client, F("Status"), _testState.motorTestActive && _testState.currentMotorTest.indexOf("right") >= 0 ? F("Testing") : F("Idle"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    // Individual motor testing
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-cog'></i> Individual Motor Tests</h3>"));
+
+    client.println(F("<div class='grid grid-2'>"));
+
+    // Left motor controls
+    client.println(F("<div>"));
+    client.println(F("<h4>Left Motor</h4>"));
+
+    client.println(F("<form action='/api/motor-test-left' method='get'>"));
+    sendFormField(client, "number", "speed", "Speed (RPM)", "300");
+    sendFormField(client, "number", "steps", "Steps", "100");
+    client.println(F("<button type='submit' class='btn btn-primary'><i class='fas fa-play'></i> Test Left Motor</button>"));
+    client.println(F("</form>"));
+
+    client.println(F("</div>"));
+
+    // Right motor controls
+    client.println(F("<div>"));
+    client.println(F("<h4>Right Motor</h4>"));
+
+    client.println(F("<form action='/api/motor-test-right' method='get'>"));
+    sendFormField(client, "number", "speed", "Speed (RPM)", "300");
+    sendFormField(client, "number", "steps", "Steps", "100");
+    client.println(F("<button type='submit' class='btn btn-primary'><i class='fas fa-play'></i> Test Right Motor</button>"));
+    client.println(F("</form>"));
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    // Advanced motor tests
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-chart-line'></i> Advanced Motor Tests</h3>"));
+
+    client.println(F("<div class='grid grid-3'>"));
+
+    sendButton(client, F("<i class='fas fa-sync'></i> Synchronization Test"), "/api/motor-test-sync", "primary");
+    sendButton(client, F("<i class='fas fa-arrow-up'></i> Ramp Test"), "/api/motor-test-ramp", "primary");
+    sendButton(client, F("<i class='fas fa-stop'></i> Stop All Tests"), "/api/motor-test-stop", "danger");
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    // Motor control utilities
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-tools'></i> Motor Utilities</h3>"));
+
+    client.println(F("<div class='grid grid-2'>"));
+
+    sendButton(client, F("<i class='fas fa-home'></i> Reset Positions"), "/api/motor-reset-positions", "warning");
+    sendButton(client, F("<i class='fas fa-info'></i> Get Status"), "/api/motor-test-status", "primary");
+
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+}
+
+// Demo page
+void WebServer::sendDemoPage(WiFiClient &client)
+{
+    sendPageTemplate(client, F("Demo System"), F("play-circle"), &WebServer::sendDemoContent);
+}
+
+void WebServer::sendDemoContent(WiFiClient &client)
+{
+    // Demo status
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-info-circle'></i> Demo Status</h3>"));
+
+    if (_testState.demoActive)
+    {
+        sendStatusItem(client, F("Demo Active"), F("Yes"), "status-warning");
+        sendStatusItem(client, F("Demo Type"), _testState.currentDemo);
+        String stepStr = String(_testState.demoStep);
+        sendStatusItem(client, F("Step"), stepStr);
+
+        unsigned long elapsed = (millis() - _testState.demoStartTime) / 1000;
+        String elapsedStr = String(elapsed) + " seconds";
+        sendStatusItem(client, F("Elapsed Time"), elapsedStr);
+    }
+    else
+    {
+        sendStatusItem(client, F("Demo Active"), F("No"), "status-ok");
+        sendStatusItem(client, F("System Ready"), F("Yes"), "status-ok");
+    }
+
+    client.println(F("</div>"));
+
+    // Demo selection
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-play-circle'></i> Available Demonstrations</h3>"));
+    client.println(F("<p>Professional demonstration modes for wheelchair swing system.</p>"));
+
+    if (!_testState.demoActive)
+    {
+        client.println(F("<div class='grid grid-2'>"));
+
+        // Gentle demo
+        client.println(F("<div style='border:1px solid #e2e8f0;padding:16px;border-radius:8px'>"));
+        client.println(F("<h4><i class='fas fa-heart'></i> Gentle Demo</h4>"));
+        client.println(F("<p>Slow, smooth movements suitable for all users. Demonstrates basic safety features.</p>"));
+        sendButton(client, F("<i class='fas fa-play'></i> Start Gentle Demo"), "/api/demo-start?mode=gentle", "success");
+        client.println(F("</div>"));
+
+        // Full feature demo
+        client.println(F("<div style='border:1px solid #e2e8f0;padding:16px;border-radius:8px'>"));
+        client.println(F("<h4><i class='fas fa-rocket'></i> Full Feature Demo</h4>"));
+        client.println(F("<p>Complete demonstration showcasing all features including voice control and motor testing.</p>"));
+        sendButton(client, F("<i class='fas fa-play'></i> Start Full Demo"), "/api/demo-start?mode=full", "primary");
+        client.println(F("</div>"));
+
+        // Safety demo
+        client.println(F("<div style='border:1px solid #e2e8f0;padding:16px;border-radius:8px'>"));
+        client.println(F("<h4><i class='fas fa-shield-alt'></i> Safety Demo</h4>"));
+        client.println(F("<p>Focused demonstration of safety systems and emergency response capabilities.</p>"));
+        sendButton(client, F("<i class='fas fa-play'></i> Start Safety Demo"), "/api/demo-start?mode=safety", "warning");
+        client.println(F("</div>"));
+
+        // Custom demo
+        client.println(F("<div style='border:1px solid #e2e8f0;padding:16px;border-radius:8px'>"));
+        client.println(F("<h4><i class='fas fa-cog'></i> Custom Demo</h4>"));
+        client.println(F("<p>Customizable demonstration sequence with adjustable parameters.</p>"));
+        sendButton(client, F("<i class='fas fa-play'></i> Start Custom Demo"), "/api/demo-start?mode=custom", "primary");
+        client.println(F("</div>"));
+
+        client.println(F("</div>"));
+    }
+    else
+    {
+        client.println(F("<div class='grid grid-2'>"));
+        sendButton(client, F("<i class='fas fa-stop'></i> Stop Demo"), "/api/demo-stop", "danger");
+        sendButton(client, F("<i class='fas fa-info'></i> Demo Status"), "/api/demo-status", "primary");
+        client.println(F("</div>"));
+    }
+
+    client.println(F("</div>"));
+}
+// 404 page
+void WebServer::send404Page(WiFiClient &client)
+{
+    client.println(F("HTTP/1.1 404 Not Found"));
+    client.println(F("Content-Type: text/html"));
+    client.println(F("Connection: close"));
+    client.println();
+
+    client.println(F("<!DOCTYPE html><html><head>"));
+    client.println(F("<meta charset='UTF-8'>"));
+    client.println(F("<meta name='viewport' content='width=device-width,initial-scale=1.0'>"));
+    client.println(F("<title>Page Not Found - Wheelchair Swing</title>"));
+    client.println(F("<link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css' rel='stylesheet'>"));
+
+    sendUnifiedCSS(client);
+
+    client.println(F("</head><body><div class='container'>"));
+
+    client.println(F("<div class='header' style='text-align:center;margin-top:60px'>"));
+    client.println(F("<div style='font-size:6rem;color:#e2e8f0;margin-bottom:20px'>"));
+    client.println(F("<i class='fas fa-exclamation-triangle'></i>"));
+    client.println(F("</div>"));
+    client.println(F("<h1 style='color:#6b7280'>Page Not Found</h1>"));
+    client.println(F("<p style='color:#9ca3af;margin:20px 0'>The page you're looking for doesn't exist.</p>"));
+    client.println(F("</div>"));
+
+    client.println(F("<div class='card'>"));
+    client.println(F("<h3><i class='fas fa-compass'></i> Where would you like to go?</h3>"));
+    client.println(F("<div class='grid grid-2'>"));
+    sendButton(client, F("<i class='fas fa-home'></i> Return Home"), "/", "primary");
+    sendButton(client, F("<i class='fas fa-gamepad'></i> Control Panel"), "/control", "primary");
+    client.println(F("</div>"));
+    client.println(F("</div>"));
+
+    client.println(F("</div>"));
+    sendUnifiedJS(client);
+    client.println(F("</body></html>"));
+}
+
+// Motor test API handler
+void WebServer::handleMotorTestAPI(WiFiClient &client, String command)
+{
+    Serial.print(F("Motor Test API Command: "));
+    Serial.println(command);
+
+    if (command.startsWith("left"))
+    {
+        testMotorLeft(client, command);
+    }
+    else if (command.startsWith("right"))
+    {
+        testMotorRight(client, command);
+    }
+    else if (command == "sync")
+    {
+        testMotorSync(client);
+    }
+    else if (command.startsWith("ramp"))
+    {
+        startRampTest(client, command);
+    }
+    else if (command == "stop")
+    {
+        stopMotorTest(client);
+    }
+    else if (command == "status")
+    {
+        getMotorTestStatus(client);
+    }
+    else if (command == "reset-positions")
+    {
+        resetMotorPositions();
+        sendJsonResponse(client, F("{\"status\":\"positions_reset\"}"));
+    }
+    else
+    {
+        sendJsonResponse(client, F("{\"error\":\"Unknown motor test command\"}"));
+    }
+}
+
+// Demo API handler
+void WebServer::handleDemoAPI(WiFiClient &client, String command)
+{
+    Serial.print(F("Demo API Command: "));
+    Serial.println(command);
+
+    if (command.startsWith("-start"))
+    {
+        startDemo(client, command);
+    }
+    else if (command == "-stop")
+    {
+        stopDemo(client);
+    }
+    else if (command == "-status")
+    {
+        getDemoStatus(client);
+    }
+    else
+    {
+        sendJsonResponse(client, F("{\"error\":\"Unknown demo command\"}"));
+    }
+}
+
+// Utility methods
+void WebServer::sendHttpHeader(WiFiClient &client, const char *contentType)
+{
+    client.println(F("HTTP/1.1 200 OK"));
+    client.print(F("Content-Type: "));
+    client.println(contentType);
+    client.println(F("Connection: close"));
+    client.println();
+}
+
+void WebServer::sendJsonResponse(WiFiClient &client, const __FlashStringHelper *json)
+{
+    client.println(F("HTTP/1.1 200 OK"));
+    client.println(F("Content-Type: application/json"));
+    client.println(F("Connection: close"));
+    client.println();
+    client.println(json);
+}
+
+void WebServer::sendJsonResponse(WiFiClient &client, const String &json)
+{
+    client.println(F("HTTP/1.1 200 OK"));
+    client.println(F("Content-Type: application/json"));
+    client.println(F("Connection: close"));
+    client.println();
+    client.println(json);
+}
+
+void WebServer::logEvent(const String &eventType, const String &description, const String &status, unsigned long responseTime)
+{
     // Store in circular buffer
-    _safetyEventLogs[_safetyLogIndex].timestamp = millis();
-    _safetyEventLogs[_safetyLogIndex].eventType = eventType;
-    _safetyEventLogs[_safetyLogIndex].description = description;
-    _safetyEventLogs[_safetyLogIndex].status = status;
-    _safetyEventLogs[_safetyLogIndex].responseTime = responseTime;
+    _logs[_logIndex].timestamp = millis();
+    _logs[_logIndex].eventType = eventType;
+    _logs[_logIndex].description = description;
+    _logs[_logIndex].status = status;
+    _logs[_logIndex].responseTime = responseTime;
 
-    // Log to serial for debugging
-    Serial.print("SAFETY LOG: [");
+    // Log to serial
+    Serial.print(F("LOG: ["));
     Serial.print(eventType);
-    Serial.print("] ");
+    Serial.print(F("] "));
     Serial.print(description);
-    Serial.print(" - ");
+    Serial.print(F(" - "));
     Serial.print(status);
-    if (responseTime > 0) {
-        Serial.print(" (");
+    if (responseTime > 0)
+    {
+        Serial.print(F(" ("));
         Serial.print(responseTime);
-        Serial.print("ms)");
+        Serial.print(F("ms)"));
     }
     Serial.println();
 
     // Move to next log entry
-    _safetyLogIndex = (_safetyLogIndex + 1) % MAX_SAFETY_LOGS;
-}
-
-// Simulate an obstacle at a specific distance
-bool WebServer::simulateObstacle(float distance, String sensor) {
-    if (!_safetyOverrideEnabled) {
-        Serial.println("Safety override not enabled - cannot simulate obstacle");
-        return false;
-    }
-
-    // This needs to be implemented in SafetyMonitor to allow
-    // artificially setting sensor values for testing purposes
-    // _safetyMonitor->simulateObstacleDetection(sensor, distance);
-
-    // For now, we'll directly generate events to simulate this
-    if (distance < CRITICAL_DISTANCE_CM) {
-        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
-        return true;
-    } else if (distance < OBSTACLE_DISTANCE_CM) {
-        _stateMachine->processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
-        return true;
-    }
-
-    return false;
-}
-
-// Simulate user departure
-bool WebServer::simulateUserDeparture() {
-    if (!_safetyOverrideEnabled) {
-        Serial.println("Safety override not enabled - cannot simulate user departure");
-        return false;
-    }
-
-    // This would need to be implemented in SafetyMonitor
-    // _safetyMonitor->simulateUserDeparture();
-
-    // Direct event simulation
-    _stateMachine->processEvent(StateMachine::EVENT_PRESSURE_OFF);
-    return true;
-}
-
-// Simulate motor stall
-bool WebServer::simulateMotorStall() {
-    if (!_safetyOverrideEnabled) {
-        Serial.println("Safety override not enabled - cannot simulate motor stall");
-        return false;
-    }
-
-    // This would need to be implemented in SafetyMonitor
-    // _safetyMonitor->simulateMotorStall();
-
-    // We'll directly simulate a motor stall by forcibly incrementing
-    // the stall count in SafetyMonitor - this needs to be added to
-    // the SafetyMonitor class
-    // _safetyMonitor->_stallCount = _safetyMonitor->_maxStallCount;
-    // _safetyMonitor->updateMotorStatus(true, 0); // This would trigger the stall detection
-
-    // For now, we'll directly trigger an emergency
-    _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
-    return true;
-}
-
-// Send the safety test page
-void WebServer::sendSafetyTestPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html lang='en'>");
-    client.println("<head>");
-    client.println("<meta charset='UTF-8'>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-    client.println("<title>Safety Testing - Wheelchair Swing</title>");
-    client.println("<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>");
-    client.println("<style>");
-    client.println("body { font-family: Arial; margin: 20px; background: #f5f5f5; }");
-    client.println(".container { max-width: 1200px; margin: 0 auto; }");
-    client.println(".card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
-    client.println(".safety-override { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 10px 0; }");
-    client.println(".safety-override.active { background: #d4edda; color: #155724; }");
-    client.println(".test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }");
-    client.println(".slider-control { margin: 15px 0; }");
-    client.println(".slider { width: 100%; margin: 10px 0; }");
-    client.println(".button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }");
-    client.println(".button:hover { background: #0056b3; }");
-    client.println(".button.danger { background: #dc3545; }");
-    client.println(".button.warning { background: #ffc107; color: #212529; }");
-    client.println(".button.success { background: #28a745; }");
-    client.println(".response-time { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; }");
-    client.println(".log-container { max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 5px; }");
-    client.println(".log-entry { padding: 8px; margin: 5px 0; border-radius: 5px; }");
-    client.println(".log-info { background: #d1ecf1; color: #0c5460; }");
-    client.println(".log-warning { background: #fff3cd; color: #856404; }");
-    client.println(".log-error { background: #f8d7da; color: #721c24; }");
-    client.println(".log-success { background: #d4edda; color: #155724; }");
-    client.println(".progress-bar { background: #ddd; height: 20px; border-radius: 10px; margin: 20px 0; }");
-    client.println(".progress-fill { background: #4CAF50; height: 100%; border-radius: 10px; width: 0%; transition: width 0.3s; }");
-    client.println(".safety-zone { width: 100%; height: 200px; background: #eee; position: relative; border: 1px solid #ccc; border-radius: 5px; overflow: hidden; margin: 20px 0; }");
-    client.println(".sensor { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; background: #007bff; border-radius: 50%; }");
-    client.println(".sensor.front { left: 10px; }");
-    client.println(".sensor.rear { right: 10px; }");
-    client.println(".swing { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80px; height: 40px; background: #ffc107; border-radius: 5px; }");
-    client.println(".zone { position: absolute; top: 0; height: 100%; opacity: 0.3; }");
-    client.println(".critical-zone { background: #f00; }");
-    client.println(".warning-zone { background: #ffc107; }");
-    client.println("</style>");
-    client.println("</head>");
-    client.println("<body>");
-
-    client.println(generateSafetyTestHTML());
-
-    client.println("<script>");
-    client.println("let safetyTestActive = false;");
-    client.println("let safetyOverrideEnabled = false;");
-    client.println("let overrideTimeoutTimer;");
-    client.println("let responseTimeMeasurements = [];");
-
-    // JavaScript for safety testing functionality
-    client.println("function toggleSafetyOverride(enable) {");
-    client.println("  const endpoint = enable ? '/api/safety-test-override?enable=1' : '/api/safety-test-override?disable=1';");
-    client.println("  fetch(endpoint)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      safetyOverrideEnabled = enable;");
-    client.println("      document.getElementById('safetyOverride').className = 'safety-override ' + (enable ? 'active' : '');");
-    client.println("      document.getElementById('safetyOverride').innerHTML = enable ? ");
-    client.println("        '⚠️ <strong>SAFETY OVERRIDE ENABLED</strong> - Safety systems are bypassed for testing! Auto-disables in <span id=\"overrideTimeout\">300</span> seconds.' : ");
-    client.println("        '✓ Safety systems active - Override disabled';");
-    client.println("      if (enable) {");
-    client.println("        startOverrideCountdown(300);");
-    client.println("        logSafetyEvent('override', 'Safety override enabled for testing', 'WARNING');");
-    client.println("      } else {");
-    client.println("        clearTimeout(overrideTimeoutTimer);");
-    client.println("        logSafetyEvent('override', 'Safety override disabled', 'INFO');");
-    client.println("      }");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function startOverrideCountdown(seconds) {");
-    client.println("  document.getElementById('overrideTimeout').textContent = seconds;");
-    client.println("  if (seconds <= 0) {");
-    client.println("    toggleSafetyOverride(false);");
-    client.println("    return;");
-    client.println("  }");
-    client.println("  overrideTimeoutTimer = setTimeout(() => startOverrideCountdown(seconds - 1), 1000);");
-    client.println("}");
-
-    client.println("function triggerSafetyEvent(event, params = {}) {");
-    client.println("  if (!safetyOverrideEnabled) {");
-    client.println("    alert('Safety override must be enabled for testing!');");
-    client.println("    return;");
-    client.println("  }");
-    client.println("  let endpoint = `/api/safety-test-trigger?event=${event}`;");
-    client.println("  if (event === 'obstacle') {");
-    client.println("    const distance = params.distance || document.getElementById('obstacleDistance').value;");
-    client.println("    const sensor = params.sensor || document.getElementById('obstacleSensor').value;");
-    client.println("    endpoint += `&distance=${distance}&sensor=${sensor}`;");
-    client.println("  }");
-    client.println("  fetch(endpoint)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'success') {");
-    client.println("        logSafetyEvent(event, data.description, 'SUCCESS', data.response_time);");
-    client.println("        document.getElementById('responseTime').textContent = data.response_time + ' ms';");
-    client.println("      } else {");
-    client.println("        logSafetyEvent(event, data.description || 'Event trigger failed', 'FAILED');");
-    client.println("      }");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function runThresholdTest() {");
-    client.println("  if (!safetyOverrideEnabled) {");
-    client.println("    alert('Safety override must be enabled for testing!');");
-    client.println("    return;");
-    client.println("  }");
-    client.println("  const sensor = document.getElementById('thresholdSensor').value;");
-    client.println("  const startVal = document.getElementById('thresholdStart').value;");
-    client.println("  const endVal = document.getElementById('thresholdEnd').value;");
-    client.println("  const steps = document.getElementById('thresholdSteps').value;");
-    client.println("  const endpoint = `/api/safety-test-threshold?sensor=${sensor}&start=${startVal}&end=${endVal}&steps=${steps}`;");
-    client.println("  fetch(endpoint)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'started') {");
-    client.println("        safetyTestActive = true;");
-    client.println("        logSafetyEvent('threshold', `Starting threshold test for ${sensor} from ${startVal}cm to ${endVal}cm`, 'STARTED');");
-    client.println("        document.getElementById('progressBar').style.display = 'block';");
-    client.println("        document.getElementById('progressFill').style.width = '0%';");
-    client.println("        startProgressUpdate();");
-    client.println("      }");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function startProgressUpdate() {");
-    client.println("  let progress = 0;");
-    client.println("  const interval = setInterval(() => {");
-    client.println("    progress += 5;");
-    client.println("    if (progress > 100) {");
-    client.println("      clearInterval(interval);");
-    client.println("      safetyTestActive = false;");
-    client.println("      return;");
-    client.println("    }");
-    client.println("    document.getElementById('progressFill').style.width = progress + '%';");
-    client.println("    // Check test status");
-    client.println("    fetch('/api/safety-test-status')");
-    client.println("      .then(response => response.json())");
-    client.println("      .then(data => {");
-    client.println("        if (!data.active) {");
-    client.println("          clearInterval(interval);");
-    client.println("          document.getElementById('progressFill').style.width = '100%';");
-    client.println("          setTimeout(() => {");
-    client.println("            document.getElementById('progressBar').style.display = 'none';");
-    client.println("          }, 1000);");
-    client.println("          logSafetyEvent('threshold', 'Threshold test completed', 'COMPLETED');");
-    client.println("        }");
-    client.println("      });");
-    client.println("  }, 500);");
-    client.println("}");
-
-    client.println("function measureResponseTime() {");
-    client.println("  if (!safetyOverrideEnabled) {");
-    client.println("    alert('Safety override must be enabled for testing!');");
-    client.println("    return;");
-    client.println("  }");
-    client.println("  const event = document.getElementById('responseEvent').value;");
-    client.println("  const iterations = document.getElementById('responseIterations').value;");
-    client.println("  const endpoint = `/api/safety-test-response-time?event=${event}&iterations=${iterations}`;");
-    client.println("  responseTimeMeasurements = [];");
-    client.println("  fetch(endpoint)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'started') {");
-    client.println("        safetyTestActive = true;");
-    client.println("        logSafetyEvent('response', `Starting response time measurement for ${event} (${iterations} iterations)`, 'STARTED');");
-    client.println("        document.getElementById('progressBar').style.display = 'block';");
-    client.println("        document.getElementById('progressFill').style.width = '0%';");
-    client.println("        startProgressUpdate();");
-    client.println("      }");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function runAutomatedTest() {");
-    client.println("  if (!safetyOverrideEnabled) {");
-    client.println("    alert('Safety override must be enabled for testing!');");
-    client.println("    return;");
-    client.println("  }");
-    client.println("  fetch('/api/safety-test-automated-test')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'started') {");
-    client.println("        safetyTestActive = true;");
-    client.println("        logSafetyEvent('automated', 'Starting automated safety test sequence', 'STARTED');");
-    client.println("        document.getElementById('progressBar').style.display = 'block';");
-    client.println("        document.getElementById('progressFill').style.width = '0%';");
-    client.println("        startProgressUpdate();");
-    client.println("      }");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function updateSafetyZones() {");
-    client.println("  const warningDistance = document.getElementById('thresholdStart').value;");
-    client.println("  const criticalDistance = document.getElementById('thresholdEnd').value;");
-    client.println("  const maxDistance = 100; // Maximum display distance in cm");
-    client.println("  const zoneWidth = document.querySelector('.safety-zone').offsetWidth;");
-    client.println("  ");
-    client.println("  // Calculate pixel positions (scale from cm to pixels)");
-    client.println("  const warningPixels = (warningDistance / maxDistance) * (zoneWidth / 2);");
-    client.println("  const criticalPixels = (criticalDistance / maxDistance) * (zoneWidth / 2);");
-    client.println("  ");
-    client.println("  // Update front zones");
-    client.println("  document.querySelector('.front-warning').style.left = '0';");
-    client.println("  document.querySelector('.front-warning').style.width = warningPixels + 'px';");
-    client.println("  document.querySelector('.front-critical').style.left = '0';");
-    client.println("  document.querySelector('.front-critical').style.width = criticalPixels + 'px';");
-    client.println("  ");
-    client.println("  // Update rear zones");
-    client.println("  document.querySelector('.rear-warning').style.right = '0';");
-    client.println("  document.querySelector('.rear-warning').style.width = warningPixels + 'px';");
-    client.println("  document.querySelector('.rear-critical').style.right = '0';");
-    client.println("  document.querySelector('.rear-critical').style.width = criticalPixels + 'px';");
-    client.println("}");
-
-    client.println("function logSafetyEvent(type, description, status, responseTime = '') {");
-    client.println("  const logContainer = document.getElementById('logContainer');");
-    client.println("  const timestamp = new Date().toLocaleTimeString();");
-    client.println("  ");
-    client.println("  let logClass = 'log-info';");
-    client.println("  if (status === 'WARNING' || status === 'STARTED') logClass = 'log-warning';");
-    client.println("  else if (status === 'ERROR' || status === 'FAILED') logClass = 'log-error';");
-    client.println("  else if (status === 'SUCCESS' || status === 'COMPLETED') logClass = 'log-success';");
-    client.println("  ");
-    client.println("  const logEntry = document.createElement('div');");
-    client.println("  logEntry.className = `log-entry ${logClass}`;");
-    client.println("  logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${description} - <em>${status}</em> ${responseTime ? '(' + responseTime + 'ms)' : ''}`;");
-    client.println("  ");
-    client.println("  logContainer.insertBefore(logEntry, logContainer.firstChild);");
-    client.println("  ");
-    client.println("  // Limit to 100 log entries");
-    client.println("  if (logContainer.children.length > 100) {");
-    client.println("    logContainer.removeChild(logContainer.lastChild);");
-    client.println("  }");
-    client.println("}");
-
-    client.println("function resetSafetyLogs() {");
-    client.println("  if (confirm('Are you sure you want to clear all safety logs?')) {");
-    client.println("    fetch('/api/safety-test-reset-logs')");
-    client.println("      .then(response => response.json())");
-    client.println("      .then(data => {");
-    client.println("        document.getElementById('logContainer').innerHTML = '';");
-    client.println("        logSafetyEvent('system', 'Safety logs cleared', 'INFO');");
-    client.println("      });");
-    client.println("  }");
-    client.println("}");
-
-    client.println("// Check safety status on load");
-    client.println("document.addEventListener('DOMContentLoaded', function() {");
-    client.println("  fetch('/api/safety-test-status')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      safetyOverrideEnabled = data.override_enabled;");
-    client.println("      document.getElementById('safetyOverride').className = 'safety-override ' + (safetyOverrideEnabled ? 'active' : '');");
-    client.println("      if (safetyOverrideEnabled) {");
-    client.println("        document.getElementById('safetyOverride').innerHTML = ");
-    client.println("          '⚠️ <strong>SAFETY OVERRIDE ENABLED</strong> - Safety systems are bypassed for testing! Auto-disables in <span id=\"overrideTimeout\">' + data.override_timeout + '</span> seconds.';");
-    client.println("        startOverrideCountdown(data.override_timeout);");
-    client.println("      }");
-    client.println("    });");
-    client.println("  ");
-    client.println("  // Load existing logs");
-    client.println("  fetch('/api/safety-test-logs')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.logs && data.logs.length > 0) {");
-    client.println("        data.logs.forEach(log => {");
-    client.println("          logSafetyEvent(log.event, log.description, log.status, log.response_time);");
-    client.println("        });");
-    client.println("      }");
-    client.println("    });");
-    client.println("  ");
-    client.println("  // Initialize safety zones");
-    client.println("  updateSafetyZones();");
-    client.println("});");
-
-    client.println("</script>");
-    client.println("</body></html>");
-}
-
-String WebServer::generateSafetyTestHTML() {
-    String html = "<div class='container'>";
-    html += "<h1>Safety System Testing</h1>";
-    html += "<p><a href='/'>← Back to Home</a></p>";
-
-    // Safety Override Control
-    html += "<div id='safetyOverride' class='safety-override'>";
-    html += "✓ Safety systems active - Override disabled";
-    html += "</div>";
-
-    html += "<div class='card'>";
-    html += "<h2>Safety Override Control</h2>";
-    html += "<p>Warning: Enabling safety override will bypass normal safety protections for testing purposes.</p>";
-    html += "<button class='button warning' onclick='toggleSafetyOverride(true)'>Enable Safety Override</button>";
-    html += "<button class='button' onclick='toggleSafetyOverride(false)'>Disable Safety Override</button>";
-    html += "</div>";
-
-    // Safety Visualization
-    html += "<div class='card'>";
-    html += "<h2>Safety Zone Visualization</h2>";
-    html += "<div class='safety-zone'>";
-    html += "<div class='zone warning-zone front-warning'></div>";
-    html += "<div class='zone critical-zone front-critical'></div>";
-    html += "<div class='sensor front'></div>";
-    html += "<div class='swing'></div>";
-    html += "<div class='sensor rear'></div>";
-    html += "<div class='zone warning-zone rear-warning'></div>";
-    html += "<div class='zone critical-zone rear-critical'></div>";
-    html += "</div>";
-    html += "<p>Visual representation of safety thresholds: red = critical, yellow = warning</p>";
-    html += "</div>";
-
-    // Progress bar (hidden by default)
-    html += "<div id='progressBar' class='progress-bar' style='display: none;'>";
-    html += "<div id='progressFill' class='progress-fill'></div>";
-    html += "</div>";
-
-    // Event Trigger Section
-    html += "<div class='card'>";
-    html += "<h2>Manual Safety Event Triggers</h2>";
-    html += "<div class='test-grid'>";
-
-    // Obstacle Detection Trigger
-    html += "<div>";
-    html += "<h3>Obstacle Detection</h3>";
-    html += "<div class='slider-control'>";
-    html += "<label>Distance (cm): <span id='obstacleDistanceDisplay'>30</span></label>";
-    html += "<input type='range' id='obstacleDistance' class='slider' min='5' max='100' value='30' oninput='document.getElementById(\"obstacleDistanceDisplay\").textContent=this.value'>";
-    html += "</div>";
-    html += "<div class='slider-control'>";
-    html += "<label>Sensor:</label>";
-    html += "<select id='obstacleSensor'>";
-    html += "<option value='front'>Front</option>";
-    html += "<option value='rear'>Rear</option>";
-    html += "</select>";
-    html += "</div>";
-    html += "<button class='button danger' onclick='triggerSafetyEvent(\"obstacle\")'>Simulate Obstacle</button>";
-    html += "</div>";
-
-    // User Departure Trigger
-    html += "<div>";
-    html += "<h3>User Presence</h3>";
-    html += "<p>Simulate user leaving the swing while in operation.</p>";
-    html += "<button class='button danger' onclick='triggerSafetyEvent(\"user\")'>Simulate User Departure</button>";
-    html += "</div>";
-
-    html += "</div>";
-
-    // Second row
-    html += "<div class='test-grid'>";
-
-    // Motor Stall Trigger
-    html += "<div>";
-    html += "<h3>Motor Stall</h3>";
-    html += "<p>Simulate motor stall condition during operation.</p>";
-    html += "<button class='button danger' onclick='triggerSafetyEvent(\"stall\")'>Simulate Motor Stall</button>";
-    html += "</div>";
-
-    // Response Time Display
-    html += "<div>";
-    html += "<h3>Response Time</h3>";
-    html += "<div class='response-time' id='responseTime'>-- ms</div>";
-    html += "<p>Time from trigger to emergency stop</p>";
-    html += "</div>";
-
-    html += "</div>";
-    html += "</div>";
-
-    // Threshold Testing
-    html += "<div class='card'>";
-    html += "<h2>Threshold Testing</h2>";
-    html += "<p>Gradually decrease distance to determine precise triggering thresholds.</p>";
-
-    html += "<div class='slider-control'>";
-    html += "<label>Sensor:</label>";
-    html += "<select id='thresholdSensor'>";
-    html += "<option value='front'>Front</option>";
-    html += "<option value='rear'>Rear</option>";
-    html += "</select>";
-    html += "</div>";
-
-    html += "<div class='slider-control'>";
-    html += "<label>Start Distance (cm): <span id='thresholdStartDisplay'>100</span></label>";
-    html += "<input type='range' id='thresholdStart' class='slider' min='50' max='100' value='100' oninput='document.getElementById(\"thresholdStartDisplay\").textContent=this.value; updateSafetyZones();'>";
-    html += "</div>";
-
-    html += "<div class='slider-control'>";
-    html += "<label>End Distance (cm): <span id='thresholdEndDisplay'>5</span></label>";
-    html += "<input type='range' id='thresholdEnd' class='slider' min='5' max='30' value='5' oninput='document.getElementById(\"thresholdEndDisplay\").textContent=this.value; updateSafetyZones();'>";
-    html += "</div>";
-
-    html += "<div class='slider-control'>";
-    html += "<label>Steps: <span id='thresholdStepsDisplay'>20</span></label>";
-    html += "<input type='range' id='thresholdSteps' class='slider' min='5' max='50' value='20' oninput='document.getElementById(\"thresholdStepsDisplay\").textContent=this.value'>";
-    html += "</div>";
-
-    html += "<button class='button warning' onclick='runThresholdTest()'>Run Threshold Test</button>";
-    html += "</div>";
-
-    // Response Time Testing
-    html += "<div class='card'>";
-    html += "<h2>Response Time Testing</h2>";
-    html += "<p>Measure how quickly the system responds to safety events.</p>";
-
-    html += "<div class='slider-control'>";
-    html += "<label>Event Type:</label>";
-    html += "<select id='responseEvent'>";
-    html += "<option value='obstacle'>Obstacle Detection</option>";
-    html += "<option value='user'>User Departure</option>";
-    html += "<option value='stall'>Motor Stall</option>";
-    html += "</select>";
-    html += "</div>";
-
-    html += "<div class='slider-control'>";
-    html += "<label>Iterations: <span id='responseIterationsDisplay'>5</span></label>";
-    html += "<input type='range' id='responseIterations' class='slider' min='1' max='10' value='5' oninput='document.getElementById(\"responseIterationsDisplay\").textContent=this.value'>";
-    html += "</div>";
-
-    html += "<button class='button warning' onclick='measureResponseTime()'>Measure Response Time</button>";
-    html += "</div>";
-
-    // Automated Test Sequence
-    html += "<div class='card'>";
-    html += "<h2>Automated Test Sequence</h2>";
-    html += "<p>Run a comprehensive suite of safety tests automatically.</p>";
-    html += "<button class='button success' onclick='runAutomatedTest()'>Run Automated Test Sequence</button>";
-    html += "</div>";
-
-    // Safety Event Log
-    html += "<div class='card'>";
-    html += "<h2>Safety Event Log</h2>";
-    html += "<div class='log-container' id='logContainer'>";
-    html += "<!-- Log entries will be added here via JavaScript -->";
-    html += "</div>";
-    html += "<button class='button' onclick='resetSafetyLogs()'>Clear Log</button>";
-    html += "</div>";
-
-    html += "</div>";
-    return html;
-}
-
-void WebServer::handleMotorTestAPI(WiFiClient& client, String command) {
-    Serial.print("Motor Test API Command: ");
-    Serial.println(command);
-
-    // Safety check before any motor operation
-    if (!checkMotorTestSafety() && !command.startsWith("-stop")) {
-        sendJsonResponse(client, "{\"error\":\"Safety interlock active - obstacles detected\"}");
-        return;
-    }
-
-    if (command.startsWith("-left")) {
-        testMotorLeft(client, command);
-    } else if (command.startsWith("-right")) {
-        testMotorRight(client, command);
-    } else if (command.startsWith("-ramp-test")) {
-        startRampTest(client, command);
-    } else if (command == "-position") {
-        getMotorPosition(client);
-    } else if (command.startsWith("-direction")) {
-        testMotorDirection(client, command);
-    } else if (command == "-sync-test") {
-        testMotorSync(client);
-    } else if (command == "-stop") {
-        stopMotorTest(client);
-    } else if (command == "-status") {
-        getMotorTestStatus(client);
-    } else if (command == "-reset-position") {
-        resetMotorPositions();
-        sendJsonResponse(client, "{\"status\":\"positions_reset\"}");
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Unknown motor test command\"}");
-    }
-}
-
-void WebServer::testMotorLeft(WiFiClient& client, String params) {
-    // Extract parameters: -left?speed=300&steps=200&direction=1
-    int speedStart = params.indexOf("speed=") + 6;
-    int speedEnd = params.indexOf("&", speedStart);
-    int speed = params.substring(speedStart, speedEnd).toInt();
-
-    int stepsStart = params.indexOf("steps=") + 6;
-    int stepsEnd = params.indexOf("&", stepsStart);
-    int steps = params.substring(stepsStart, stepsEnd).toInt();
-
-    int dirStart = params.indexOf("direction=") + 10;
-    bool clockwise = params.substring(dirStart).toInt() == 1;
-
-    if (speed < 100 || speed > 700) {
-        sendJsonResponse(client, "{\"error\":\"Speed must be between 100-700 RPM\"}");
-        return;
-    }
-
-    _motorTestActive = true;
-    _currentMotorTest = "left";
-    _motorTestStartTime = millis();
-
-    // Command left motor through state machine or direct control
-    // This would integrate with your StepperDriver
-    _leftMotorPosition += clockwise ? steps : -steps;
-
-    String response = "{\"status\":\"testing\",\"motor\":\"left\",\"speed\":" +
-                     String(speed) + ",\"steps\":" + String(steps) +
-                     ",\"direction\":\"" + (clockwise ? "CW" : "CCW") + "\"}";
-    sendJsonResponse(client, response);
-
-    Serial.print("Testing left motor: ");
-    Serial.print(speed);
-    Serial.print(" RPM, ");
-    Serial.print(steps);
-    Serial.println(" steps");
-}
-
-void WebServer::testMotorRight(WiFiClient& client, String params) {
-    // Similar implementation to testMotorLeft but for right motor
-    int speedStart = params.indexOf("speed=") + 6;
-    int speedEnd = params.indexOf("&", speedStart);
-    int speed = params.substring(speedStart, speedEnd).toInt();
-
-    int stepsStart = params.indexOf("steps=") + 6;
-    int stepsEnd = params.indexOf("&", stepsStart);
-    int steps = params.substring(stepsStart, stepsEnd).toInt();
-
-    int dirStart = params.indexOf("direction=") + 10;
-    bool clockwise = params.substring(dirStart).toInt() == 1;
-
-    if (speed < 100 || speed > 700) {
-        sendJsonResponse(client, "{\"error\":\"Speed must be between 100-700 RPM\"}");
-        return;
-    }
-
-    _motorTestActive = true;
-    _currentMotorTest = "right";
-    _motorTestStartTime = millis();
-
-    _rightMotorPosition += clockwise ? steps : -steps;
-
-    String response = "{\"status\":\"testing\",\"motor\":\"right\",\"speed\":" +
-                     String(speed) + ",\"steps\":" + String(steps) +
-                     ",\"direction\":\"" + (clockwise ? "CW" : "CCW") + "\"}";
-    sendJsonResponse(client, response);
-
-    Serial.print("Testing right motor: ");
-    Serial.print(speed);
-    Serial.print(" RPM, ");
-    Serial.print(steps);
-    Serial.println(" steps");
-}
-
-void WebServer::startRampTest(WiFiClient& client, String params) {
-    // Extract motor parameter: -ramp-test?motor=left&max_speed=600
-    int motorStart = params.indexOf("motor=") + 6;
-    int motorEnd = params.indexOf("&", motorStart);
-    String motor = params.substring(motorStart, motorEnd);
-
-    int maxSpeedStart = params.indexOf("max_speed=") + 10;
-    int maxSpeed = params.substring(maxSpeedStart).toInt();
-
-    if (maxSpeed < 200 || maxSpeed > 700) {
-        sendJsonResponse(client, "{\"error\":\"Max speed must be between 200-700 RPM\"}");
-        return;
-    }
-
-    _motorTestActive = true;
-    _currentMotorTest = "ramp_" + motor;
-    _motorTestStartTime = millis();
-    _motorTestStep = 100; // Starting speed
-
-    String response = "{\"status\":\"ramp_started\",\"motor\":\"" + motor +
-                     "\",\"max_speed\":" + String(maxSpeed) +
-                     ",\"current_speed\":100}";
-    sendJsonResponse(client, response);
-
-    Serial.print("Starting ramp test for ");
-    Serial.print(motor);
-    Serial.print(" motor, max speed: ");
-    Serial.println(maxSpeed);
-}
-
-void WebServer::testMotorDirection(WiFiClient& client, String params) {
-    // Extract motor parameter: -direction?motor=left
-    int motorStart = params.indexOf("motor=") + 6;
-    String motor = params.substring(motorStart);
-
-    _motorTestActive = true;
-    _currentMotorTest = "direction_" + motor;
-    _motorTestStartTime = millis();
-
-    // 360 degree test = 200 steps for typical stepper (1.8° per step)
-    int fullRotationSteps = 200;
-
-    // Test clockwise rotation
-    if (motor == "left") {
-        _leftMotorPosition += fullRotationSteps;
-    } else {
-        _rightMotorPosition += fullRotationSteps;
-    }
-
-    String response = "{\"status\":\"direction_test\",\"motor\":\"" + motor +
-                     "\",\"phase\":\"clockwise\",\"steps\":" + String(fullRotationSteps) + "}";
-    sendJsonResponse(client, response);
-
-    Serial.print("Testing direction for ");
-    Serial.print(motor);
-    Serial.println(" motor - 360° CW then CCW");
-}
-
-void WebServer::testMotorSync(WiFiClient& client) {
-    _motorTestActive = true;
-    _currentMotorTest = "synchronization";
-    _motorTestStartTime = millis();
-
-    // Test both motors at same speed for synchronization
-    int testSpeed = 400; // RPM
-    int testSteps = 100;
-
-    String response = "{\"status\":\"sync_test\",\"speed\":" + String(testSpeed) +
-                     ",\"steps\":" + String(testSteps) + "}";
-    sendJsonResponse(client, response);
-
-    Serial.println("Starting motor synchronization test");
-}
-
-void WebServer::getMotorPosition(WiFiClient& client) {
-    String response = "{";
-    response += "\"left_position\":" + String(_leftMotorPosition) + ",";
-    response += "\"right_position\":" + String(_rightMotorPosition) + ",";
-    response += "\"left_degrees\":" + String(_leftMotorPosition * 1.8) + ",";
-    response += "\"right_degrees\":" + String(_rightMotorPosition * 1.8);
-    response += "}";
-
-    sendJsonResponse(client, response);
-}
-
-void WebServer::stopMotorTest(WiFiClient& client) {
-    _motorTestActive = false;
-    _currentMotorTest = "";
-
-    // Send stop commands to motors through state machine
-    // _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-
-    sendJsonResponse(client, "{\"status\":\"stopped\"}");
-    Serial.println("Motor test stopped");
-}
-
-void WebServer::getMotorTestStatus(WiFiClient& client) {
-    String response = "{";
-    response += "\"active\":" + String(_motorTestActive ? "true" : "false") + ",";
-    response += "\"test_type\":\"" + _currentMotorTest + "\",";
-    response += "\"safety_ok\":" + String(checkMotorTestSafety() ? "true" : "false") + ",";
-
-    if (_motorTestActive) {
-        unsigned long elapsed = millis() - _motorTestStartTime;
-        response += "\"elapsed\":" + String(elapsed) + ",";
-        response += "\"step\":" + String(_motorTestStep);
-    } else {
-        response += "\"elapsed\":0,\"step\":0";
-    }
-
-    response += "}";
-    sendJsonResponse(client, response);
-}
-
-bool WebServer::checkMotorTestSafety() {
-    // Check for obstacles within 15cm safety zone
-    float frontDist = _safetyMonitor->getFrontDistance();
-    float rearDist = _safetyMonitor->getRearDistance();
-
-    bool safetyOK = (frontDist == 0 || frontDist > 15.0) &&
-                    (rearDist == 0 || rearDist > 15.0);
-
-    if (!safetyOK && _motorTestSafetyCheck) {
-        Serial.println("Motor test safety interlock: Obstacles detected within 15cm");
-        return false;
-    }
-
-    return true;
-}
-
-void WebServer::resetMotorPositions() {
-    _leftMotorPosition = 0;
-    _rightMotorPosition = 0;
-    Serial.println("Motor positions reset to home (0,0)");
-}
-
-void WebServer::sendMotorTestPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html lang='en'>");
-    client.println("<head>");
-    client.println("<meta charset='UTF-8'>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-    client.println("<title>Motor Testing - Wheelchair Swing</title>");
-    client.println("<style>");
-    client.println("body { font-family: Arial; margin: 20px; background: #f5f5f5; }");
-    client.println(".container { max-width: 1200px; margin: 0 auto; }");
-    client.println(".card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
-    client.println(".motor-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }");
-    client.println(".slider-control { margin: 15px 0; }");
-    client.println(".slider { width: 100%; margin: 10px 0; }");
-    client.println(".button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }");
-    client.println(".button:hover { background: #0056b3; }");
-    client.println(".button.success { background: #28a745; }");
-    client.println(".button.danger { background: #dc3545; }");
-    client.println(".position-display { font-size: 18px; font-weight: bold; text-align: center; margin: 15px 0; }");
-    client.println(".safety-status { padding: 10px; border-radius: 5px; margin: 10px 0; font-weight: bold; }");
-    client.println(".safety-ok { background: #d4edda; color: #155724; }");
-    client.println(".safety-warning { background: #f8d7da; color: #721c24; }");
-    client.println("</style>");
-    client.println("</head>");
-    client.println("<body>");
-
-    client.println(generateMotorTestHTML());
-
-    client.println("<script>");
-    client.println("let motorTestActive = false;");
-    client.println("let leftPosition = 0;");
-    client.println("let rightPosition = 0;");
-
-    // JavaScript for motor control functionality
-    client.println("function testMotor(motor) {");
-    client.println("  const speed = document.getElementById(motor + 'Speed').value;");
-    client.println("  const steps = document.getElementById(motor + 'Steps').value;");
-    client.println("  const direction = document.getElementById(motor + 'Direction').checked ? 1 : 0;");
-    client.println("  fetch(`/api/motor-test-${motor}?speed=${speed}&steps=${steps}&direction=${direction}`)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => updateStatus(data));");
-    client.println("}");
-
-    client.println("function startRampTest(motor) {");
-    client.println("  const maxSpeed = document.getElementById('rampMaxSpeed').value;");
-    client.println("  fetch(`/api/motor-test-ramp-test?motor=${motor}&max_speed=${maxSpeed}`)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => updateStatus(data));");
-    client.println("}");
-
-    client.println("function updatePosition() {");
-    client.println("  fetch('/api/motor-test-position')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      document.getElementById('leftPos').textContent = data.left_position;");
-    client.println("      document.getElementById('rightPos').textContent = data.right_position;");
-    client.println("      document.getElementById('leftDeg').textContent = data.left_degrees.toFixed(1);");
-    client.println("      document.getElementById('rightDeg').textContent = data.right_degrees.toFixed(1);");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function stopAllMotors() {");
-    client.println("  fetch('/api/motor-test-stop')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => updateStatus(data));");
-    client.println("}");
-
-    client.println("function updateStatus(data) {");
-    client.println("  console.log('Motor test status:', data);");
-    client.println("}");
-
-    client.println("// Update position every 2 seconds");
-    client.println("setInterval(updatePosition, 2000);");
-    client.println("updatePosition();");
-
-    client.println("</script>");
-    client.println("</body></html>");
-}
-
-String WebServer::generateMotorTestHTML() {
-    String html = "<div class='container'>";
-    html += "<h1>Motor Testing Interface</h1>";
-    html += "<p><a href='/'>← Back to Home</a></p>";
-
-    // Safety status
-    html += "<div class='safety-status " + String(checkMotorTestSafety() ? "safety-ok" : "safety-warning") + "'>";
-    html += checkMotorTestSafety() ? "✓ Safety Systems OK - Testing Enabled" : "⚠ Safety Interlock Active - Obstacles Detected";
-    html += "</div>";
-
-    // Position display
-    html += "<div class='card'>";
-    html += "<h2>Current Positions</h2>";
-    html += "<div class='motor-controls'>";
-    html += "<div>";
-    html += "<h3>Left Motor</h3>";
-    html += "<div class='position-display'>Steps: <span id='leftPos'>0</span></div>";
-    html += "<div class='position-display'>Degrees: <span id='leftDeg'>0.0</span>°</div>";
-    html += "</div>";
-    html += "<div>";
-    html += "<h3>Right Motor</h3>";
-    html += "<div class='position-display'>Steps: <span id='rightPos'>0</span></div>";
-    html += "<div class='position-display'>Degrees: <span id='rightDeg'>0.0</span>°</div>";
-    html += "</div>";
-    html += "</div>";
-    html += "</div>";
-
-    // Individual motor controls
-    html += "<div class='card'>";
-    html += "<h2>Individual Motor Testing</h2>";
-    html += "<div class='motor-controls'>";
-
-    // Left motor controls
-    html += "<div>";
-    html += "<h3>Left Motor</h3>";
-    html += "<div class='slider-control'>";
-    html += "<label>Speed (RPM): <span id='leftSpeedDisplay'>300</span></label>";
-    html += "<input type='range' id='leftSpeed' class='slider' min='100' max='700' value='300' oninput='document.getElementById(\"leftSpeedDisplay\").textContent=this.value'>";
-    html += "</div>";
-    html += "<div class='slider-control'>";
-    html += "<label>Steps: <span id='leftStepsDisplay'>100</span></label>";
-    html += "<input type='range' id='leftSteps' class='slider' min='10' max='500' value='100' oninput='document.getElementById(\"leftStepsDisplay\").textContent=this.value'>";
-    html += "</div>";
-    html += "<div class='slider-control'>";
-    html += "<label><input type='checkbox' id='leftDirection'> Clockwise</label>";
-    html += "</div>";
-    html += "<button class='button' onclick='testMotor(\"left\")'>Test Left Motor</button>";
-    html += "</div>";
-
-    // Right motor controls
-    html += "<div>";
-    html += "<h3>Right Motor</h3>";
-    html += "<div class='slider-control'>";
-    html += "<label>Speed (RPM): <span id='rightSpeedDisplay'>300</span></label>";
-    html += "<input type='range' id='rightSpeed' class='slider' min='100' max='700' value='300' oninput='document.getElementById(\"rightSpeedDisplay\").textContent=this.value'>";
-    html += "</div>";
-    html += "<div class='slider-control'>";
-    html += "<label>Steps: <span id='rightStepsDisplay'>100</span></label>";
-    html += "<input type='range' id='rightSteps' class='slider' min='10' max='500' value='100' oninput='document.getElementById(\"rightStepsDisplay\").textContent=this.value'>";
-    html += "</div>";
-    html += "<div class='slider-control'>";
-    html += "<label><input type='checkbox' id='rightDirection'> Clockwise</label>";
-    html += "</div>";
-    html += "<button class='button' onclick='testMotor(\"right\")'>Test Right Motor</button>";
-    html += "</div>";
-
-    html += "</div>";
-    html += "</div>";
-
-    // Advanced testing
-    html += "<div class='card'>";
-    html += "<h2>Advanced Testing</h2>";
-    html += "<div class='slider-control'>";
-    html += "<label>Ramp Test Max Speed: <span id='rampMaxSpeedDisplay'>600</span> RPM</label>";
-    html += "<input type='range' id='rampMaxSpeed' class='slider' min='200' max='700' value='600' oninput='document.getElementById(\"rampMaxSpeedDisplay\").textContent=this.value'>";
-    html += "</div>";
-    html += "<button class='button' onclick='startRampTest(\"left\")'>Ramp Test Left</button>";
-    html += "<button class='button' onclick='startRampTest(\"right\")'>Ramp Test Right</button>";
-    html += "<button class='button' onclick='fetch(\"/api/motor-test-direction?motor=left\")'>Direction Test Left</button>";
-    html += "<button class='button' onclick='fetch(\"/api/motor-test-direction?motor=right\")'>Direction Test Right</button>";
-    html += "<button class='button' onclick='fetch(\"/api/motor-test-sync-test\")'>Synchronization Test</button>";
-    html += "</div>";
-
-    // Emergency controls
-    html += "<div class='card'>";
-    html += "<h2>Emergency Controls</h2>";
-    html += "<button class='button danger' onclick='stopAllMotors()'>EMERGENCY STOP</button>";
-    html += "<button class='button' onclick='fetch(\"/api/motor-test-reset-position\").then(() => updatePosition())'>Reset Positions</button>";
-    html += "</div>";
-
-    html += "</div>";
-    return html;
-}
-
-void WebServer::handleCalibrationAPI(WiFiClient& client, String command) {
-    Serial.print("Calibration API Command: ");
-    Serial.println(command);
-
-    if (command.startsWith("-start")) {
-        // Extract sensor type from command like "-start?sensor=ultrasonic1"
-        int paramStart = command.indexOf("sensor=") + 7;
-        String sensorType = command.substring(paramStart);
-        startCalibration(client, sensorType);
-    } else if (command == "-save") {
-        saveCalibration(client);
-    } else if (command == "-reset") {
-        resetCalibration(client);
-    } else if (command == "-status") {
-        getCalibrationStatus(client);
-    } else if (command.startsWith("-threshold")) {
-        updateThreshold(client, command);
-    } else if (command == "-data") {
-        getCalibrationData(client);
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Unknown calibration command\"}");
-    }
-}
-
-void WebServer::startCalibration(WiFiClient& client, String sensorType) {
-    if (_calibrationActive) {
-        sendJsonResponse(client, "{\"error\":\"Calibration already in progress\"}");
-        return;
-    }
-
-    _calibrationActive = true;
-    _calibrationStartTime = millis();
-    _calibrationStep = 1;
-    _currentSensorCalibrating = sensorType;
-
-    // Enter calibration mode in SafetyMonitor
-    _safetyMonitor->enterCalibrationMode(sensorType);
-
-    String response = "{\"status\":\"started\",\"sensor\":\"" + sensorType + "\",\"step\":1}";
-    sendJsonResponse(client, response);
-
-    Serial.print("Calibration started for sensor: ");
-    Serial.println(sensorType);
-}
-
-void WebServer::saveCalibration(WiFiClient& client) {
-    if (!_calibrationActive) {
-        sendJsonResponse(client, "{\"error\":\"No calibration in progress\"}");
-        return;
-    }
-
-    // Save calibration data from SafetyMonitor
-    bool success = _safetyMonitor->saveCalibrationData();
-
-    _calibrationActive = false;
-    _safetyMonitor->exitCalibrationMode();
-
-    if (success) {
-        sendJsonResponse(client, "{\"status\":\"saved\",\"message\":\"Calibration saved successfully\"}");
-        Serial.println("Calibration data saved successfully");
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Failed to save calibration data\"}");
-        Serial.println("Failed to save calibration data");
-    }
-}
-
-void WebServer::resetCalibration(WiFiClient& client) {
-    _calibrationActive = false;
-    _safetyMonitor->exitCalibrationMode();
-    _safetyMonitor->resetCalibrationData();
-
-    sendJsonResponse(client, "{\"status\":\"reset\",\"message\":\"Calibration reset to defaults\"}");
-    Serial.println("Calibration reset to factory defaults");
-}
-
-void WebServer::getCalibrationStatus(WiFiClient& client) {
-    String response = "{";
-    response += "\"active\":" + String(_calibrationActive ? "true" : "false") + ",";
-    response += "\"step\":" + String(_calibrationStep) + ",";
-    response += "\"sensor\":\"" + _currentSensorCalibrating + "\",";
-
-    if (_calibrationActive) {
-        unsigned long elapsed = millis() - _calibrationStartTime;
-        response += "\"elapsed\":" + String(elapsed) + ",";
-
-        // Get current calibration data from SafetyMonitor
-        auto calibData = _safetyMonitor->getCurrentCalibrationData();
-        response += "\"readings\":" + String(calibData.readingCount) + ",";
-        response += "\"min\":" + String(calibData.minValue) + ",";
-        response += "\"max\":" + String(calibData.maxValue) + ",";
-        response += "\"average\":" + String(calibData.average);
-    } else {
-        response += "\"elapsed\":0,\"readings\":0,\"min\":0,\"max\":0,\"average\":0";
-    }
-
-    response += "}";
-    sendJsonResponse(client, response);
-}
-
-void WebServer::updateThreshold(WiFiClient& client, String params) {
-    // Parse threshold update parameters
-    // Expected format: -threshold?sensor=ultrasonic1&min=10&max=100
-
-    int sensorStart = params.indexOf("sensor=") + 7;
-    int sensorEnd = params.indexOf("&", sensorStart);
-    String sensor = params.substring(sensorStart, sensorEnd);
-
-    int minStart = params.indexOf("min=") + 4;
-    int minEnd = params.indexOf("&", minStart);
-    float minValue = params.substring(minStart, minEnd).toFloat();
-
-    int maxStart = params.indexOf("max=") + 4;
-    float maxValue = params.substring(maxStart).toFloat();
-
-    bool success = _safetyMonitor->updateSensorThresholds(sensor, minValue, maxValue);
-
-    if (success) {
-        String response = "{\"status\":\"updated\",\"sensor\":\"" + sensor +
-                         "\",\"min\":" + String(minValue) + ",\"max\":" + String(maxValue) + "}";
-        sendJsonResponse(client, response);
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Failed to update thresholds\"}");
-    }
-}
-
-void WebServer::getCalibrationData(WiFiClient& client) {
-    // Get all calibration data for export
-    String response = "{";
-    response += "\"ultrasonic1\":{";
-    response += "\"min\":" + String(_safetyMonitor->getUltrasonicMinThreshold(1)) + ",";
-    response += "\"max\":" + String(_safetyMonitor->getUltrasonicMaxThreshold(1)) + ",";
-    response += "\"baseline\":" + String(_safetyMonitor->getUltrasonicBaseline(1));
-    response += "},";
-    response += "\"ultrasonic2\":{";
-    response += "\"min\":" + String(_safetyMonitor->getUltrasonicMinThreshold(2)) + ",";
-    response += "\"max\":" + String(_safetyMonitor->getUltrasonicMaxThreshold(2)) + ",";
-    response += "\"baseline\":" + String(_safetyMonitor->getUltrasonicBaseline(2));
-    response += "},";
-    response += "\"pressure\":{";
-    response += "\"threshold\":" + String(_safetyMonitor->getPressureThreshold()) + ",";
-    response += "\"baseline\":" + String(_safetyMonitor->getPressureBaseline());
-    response += "},";
-    response += "\"timestamp\":" + String(millis());
-    response += "}";
-
-    sendJsonResponse(client, response);
-}
-
-void WebServer::sendCalibrationPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html lang='en'>");
-    client.println("<head>");
-    client.println("<meta charset='UTF-8'>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-    client.println("<title>Sensor Calibration - Wheelchair Swing</title>");
-    client.println("<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>");
-    client.println("<style>");
-    client.println("body { font-family: Arial; margin: 20px; background: #f5f5f5; }");
-    client.println(".container { max-width: 1000px; margin: 0 auto; }");
-    client.println(".card { background: white; padding: 20px; margin: 20px 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
-    client.println(".wizard-step { display: none; }");
-    client.println(".wizard-step.active { display: block; }");
-    client.println(".progress-bar { background: #ddd; height: 20px; border-radius: 10px; margin: 20px 0; }");
-    client.println(".progress-fill { background: #4CAF50; height: 100%; border-radius: 10px; transition: width 0.3s; }");
-    client.println(".threshold-slider { width: 100%; margin: 10px 0; }");
-    client.println(".button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }");
-    client.println(".button:hover { background: #0056b3; }");
-    client.println(".button.success { background: #28a745; }");
-    client.println(".button.danger { background: #dc3545; }");
-    client.println(".sensor-reading { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; }");
-    client.println(".calibration-status { padding: 15px; border-radius: 5px; margin: 10px 0; }");
-    client.println(".status-ok { background: #d4edda; color: #155724; }");
-    client.println(".status-warning { background: #fff3cd; color: #856404; }");
-    client.println(".status-error { background: #f8d7da; color: #721c24; }");
-    client.println("</style>");
-    client.println("</head>");
-    client.println("<body>");
-
-    client.println(generateCalibrationWizardHTML());
-
-    client.println("<script>");
-    client.println("let calibrationChart;");
-    client.println("let isCalibrating = false;");
-    client.println("let currentStep = 1;");
-    client.println("let calibrationData = [];");
-
-    // JavaScript for calibration functionality
-    client.println("function initializeChart() {");
-    client.println("  const ctx = document.getElementById('calibrationChart').getContext('2d');");
-    client.println("  calibrationChart = new Chart(ctx, {");
-    client.println("    type: 'line',");
-    client.println("    data: {");
-    client.println("      labels: [],");
-    client.println("      datasets: [{");
-    client.println("        label: 'Sensor Reading',");
-    client.println("        data: [],");
-    client.println("        borderColor: '#007bff',");
-    client.println("        tension: 0.1");
-    client.println("      }]");
-    client.println("    },");
-    client.println("    options: { responsive: true, maintainAspectRatio: false }");
-    client.println("  });");
-    client.println("}");
-
-    client.println("function startCalibration(sensor) {");
-    client.println("  fetch('/api/calibrate-start?sensor=' + sensor)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'started') {");
-    client.println("        isCalibrating = true;");
-    client.println("        showWizardStep(2);");
-    client.println("        updateCalibrationStatus();");
-    client.println("      }");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function updateCalibrationStatus() {");
-    client.println("  if (!isCalibrating) return;");
-    client.println("  fetch('/api/calibrate-status')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      document.getElementById('readingCount').textContent = data.readings;");
-    client.println("      document.getElementById('minValue').textContent = data.min.toFixed(2);");
-    client.println("      document.getElementById('maxValue').textContent = data.max.toFixed(2);");
-    client.println("      document.getElementById('avgValue').textContent = data.average.toFixed(2);");
-    client.println("      updateProgress(data.readings);");
-    client.println("      if (data.readings >= 100) enableSaveButton();");
-    client.println("      setTimeout(updateCalibrationStatus, 1000);");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function updateProgress(readings) {");
-    client.println("  const progress = Math.min(readings / 100 * 100, 100);");
-    client.println("  document.getElementById('progressFill').style.width = progress + '%';");
-    client.println("}");
-
-    client.println("function enableSaveButton() {");
-    client.println("  document.getElementById('saveBtn').disabled = false;");
-    client.println("  document.getElementById('saveBtn').className = 'button success';");
-    client.println("}");
-
-    client.println("function saveCalibration() {");
-    client.println("  fetch('/api/calibrate-save')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'saved') {");
-    client.println("        isCalibrating = false;");
-    client.println("        showWizardStep(4);");
-    client.println("      }");
-    client.println("    });");
-    client.println("}");
-
-    client.println("function showWizardStep(step) {");
-    client.println("  document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));");
-    client.println("  document.getElementById('step' + step).classList.add('active');");
-    client.println("  currentStep = step;");
-    client.println("}");
-
-    client.println("document.addEventListener('DOMContentLoaded', function() {");
-    client.println("  initializeChart();");
-    client.println("});");
-
-    client.println("</script>");
-    client.println("</body></html>");
-}
-
-String WebServer::generateCalibrationWizardHTML() {
-    String html = "<div class='container'>";
-    html += "<h1>Sensor Calibration Wizard</h1>";
-    html += "<p><a href='/'>← Back to Home</a></p>";
-
-    // Step 1: Sensor Selection
-    html += "<div id='step1' class='wizard-step active card'>";
-    html += "<h2>Step 1: Select Sensor to Calibrate</h2>";
-    html += "<button class='button' onclick='startCalibration(\"ultrasonic1\")'>Calibrate Front Ultrasonic</button>";
-    html += "<button class='button' onclick='startCalibration(\"ultrasonic2\")'>Calibrate Rear Ultrasonic</button>";
-    html += "<button class='button' onclick='startCalibration(\"pressure\")'>Calibrate Pressure Sensor</button>";
-    html += "</div>";
-
-    // Step 2: Calibration in Progress
-    html += "<div id='step2' class='wizard-step card'>";
-    html += "<h2>Step 2: Calibration in Progress</h2>";
-    html += "<p>Collecting sensor readings for baseline calculation...</p>";
-    html += "<div class='progress-bar'><div id='progressFill' class='progress-fill' style='width: 0%'></div></div>";
-    html += "<div class='sensor-reading'>";
-    html += "Readings: <span id='readingCount'>0</span>/100<br>";
-    html += "Min: <span id='minValue'>0</span> | Max: <span id='maxValue'>0</span> | Avg: <span id='avgValue'>0</span>";
-    html += "</div>";
-    html += "<canvas id='calibrationChart' width='400' height='200'></canvas>";
-    html += "<button id='saveBtn' class='button' disabled onclick='saveCalibration()'>Save Calibration</button>";
-    html += "<button class='button danger' onclick='fetch(\"/api/calibrate-reset\").then(() => location.reload())'>Cancel</button>";
-    html += "</div>";
-
-    // Step 3: Threshold Adjustment
-    html += "<div id='step3' class='wizard-step card'>";
-    html += "<h2>Step 3: Adjust Thresholds</h2>";
-    html += "<p>Fine-tune detection thresholds based on your environment:</p>";
-    html += "<label>Warning Distance (cm): <input type='range' class='threshold-slider' min='10' max='100' value='30' id='warningSlider'></label>";
-    html += "<label>Critical Distance (cm): <input type='range' class='threshold-slider' min='5' max='50' value='10' id='criticalSlider'></label>";
-    html += "<button class='button' onclick='showWizardStep(4)'>Continue</button>";
-    html += "</div>";
-
-    // Step 4: Completion
-    html += "<div id='step4' class='wizard-step card'>";
-    html += "<h2>Calibration Complete!</h2>";
-    html += "<div class='calibration-status status-ok'>";
-    html += "✓ Sensor calibration saved successfully<br>";
-    html += "✓ Baseline values recorded<br>";
-    html += "✓ Thresholds updated";
-    html += "</div>";
-    html += "<button class='button' onclick='exportCalibration()'>Export Settings</button>";
-    html += "<button class='button' onclick='location.href=\"/\"'>Return to Dashboard</button>";
-    html += "</div>";
-
-    html += "</div>";
-    return html;
-}
-
-void WebServer::sendJsonResponse(WiFiClient& client, String jsonData) {
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: application/json");
-    client.println("Connection: close");
-    client.println();
-    client.println(jsonData);
-}
-
-void WebServer::sendHttpHeader(WiFiClient& client, const char* contentType) {
-    client.println("HTTP/1.1 200 OK");
-    client.print("Content-Type: ");
-    client.println(contentType);
-    client.println("Connection: close");
-    client.println();
-}
-
-void WebServer::sendHomePage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html lang='en'>");
-    client.println("<head>");
-    client.println("<meta charset='UTF-8'>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-    client.println("<title>Wheelchair Swing Control Center</title>");
-    client.println("<link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css' rel='stylesheet'>");
-    client.println("<style>");
-
-    // Modern CSS styling
-    client.println("* { margin: 0; padding: 0; box-sizing: border-box; }");
-    client.println("body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }");
-    client.println(".container { max-width: 1200px; margin: 0 auto; padding: 20px; }");
-    client.println(".header { background: rgba(255,255,255,0.95); border-radius: 15px; padding: 30px; margin-bottom: 30px; backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.1); }");
-    client.println(".header h1 { color: #2d3748; font-size: 2.5rem; text-align: center; margin-bottom: 10px; }");
-    client.println(".header .subtitle { text-align: center; color: #718096; font-size: 1.1rem; }");
-
-    client.println(".grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px; }");
-    client.println(".card { background: rgba(255,255,255,0.95); border-radius: 15px; padding: 25px; backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.1); transition: transform 0.3s ease; }");
-    client.println(".card:hover { transform: translateY(-5px); }");
-    client.println(".card h3 { color: #2d3748; margin-bottom: 15px; font-size: 1.3rem; display: flex; align-items: center; }");
-    client.println(".card h3 i { margin-right: 10px; color: #667eea; }");
-
-    client.println(".status-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #e2e8f0; }");
-    client.println(".status-item:last-child { border-bottom: none; }");
-    client.println(".status-label { font-weight: 600; color: #4a5568; }");
-    client.println(".status-value { font-weight: 700; }");
-
-    client.println(".status-ok { color: #38a169; }");
-    client.println(".status-warning { color: #d69e2e; }");
-    client.println(".status-error { color: #e53e3e; }");
-    client.println(".status-emergency { color: #e53e3e; animation: blink 1s infinite; }");
-    client.println("@keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.5; } }");
-
-    client.println(".nav-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }");
-    client.println(".nav-button { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 18px; text-decoration: none; border-radius: 12px; font-weight: 600; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); }");
-    client.println(".nav-button:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6); }");
-    client.println(".nav-button i { margin-right: 8px; font-size: 1.2rem; }");
-
-    client.println(".control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; }");
-    client.println(".control-button { display: flex; flex-direction: column; align-items: center; justify-content: center; background: #4299e1; color: white; padding: 20px; text-decoration: none; border-radius: 12px; font-weight: 600; transition: all 0.3s ease; min-height: 100px; box-shadow: 0 4px 15px rgba(66, 153, 225, 0.3); }");
-    client.println(".control-button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(66, 153, 225, 0.5); }");
-    client.println(".control-button.success { background: #48bb78; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3); }");
-    client.println(".control-button.warning { background: #ed8936; box-shadow: 0 4px 15px rgba(237, 137, 54, 0.3); }");
-    client.println(".control-button.emergency { background: #f56565; box-shadow: 0 4px 15px rgba(245, 101, 101, 0.3); animation: pulse 2s infinite; }");
-    client.println("@keyframes pulse { 0% { box-shadow: 0 4px 15px rgba(245, 101, 101, 0.3); } 50% { box-shadow: 0 8px 30px rgba(245, 101, 101, 0.6); } 100% { box-shadow: 0 4px 15px rgba(245, 101, 101, 0.3); } }");
-    client.println(".control-button i { font-size: 2rem; margin-bottom: 8px; }");
-
-    client.println(".footer { text-align: center; color: rgba(255,255,255,0.8); margin-top: 30px; padding: 20px; }");
-    client.println("@media (max-width: 768px) { .header h1 { font-size: 2rem; } .grid { grid-template-columns: 1fr; } }");
-
-    client.println("</style>");
-    client.println("</head>");
-    client.println("<body>");
-
-    client.println("<div class='container'>");
-    client.println("<div class='header'>");
-    client.println("<h1><i class='fas fa-wheelchair'></i> Wheelchair Swing Control Center</h1>");
-    client.println("<p class='subtitle'>Advanced Safety & Control System</p>");
-    client.println("</div>");
-
-    // System Status Card
-    client.println("<div class='grid'>");
-    client.println("<div class='card'>");
-    client.println("<h3><i class='fas fa-tachometer-alt'></i>System Status</h3>");
-
-    String statusClass = "status-ok";
-    if (_safetyMonitor->getCurrentStatus() == SafetyMonitor::STATUS_WARNING) statusClass = "status-warning";
-    else if (_safetyMonitor->getCurrentStatus() == SafetyMonitor::STATUS_ERROR) statusClass = "status-error";
-    else if (_safetyMonitor->getCurrentStatus() == SafetyMonitor::STATUS_EMERGENCY) statusClass = "status-emergency";
-
-    client.println("<div class='status-item'>");
-    client.println("<span class='status-label'>State:</span>");
-    client.print("<span class='status-value ");
-    client.print(statusClass);
-    client.print("'>");
-    client.print(_stateMachine->getStateString());
-    client.println("</span></div>");
-
-    client.println("<div class='status-item'>");
-    client.println("<span class='status-label'>Speed:</span>");
-    client.print("<span class='status-value'>");
-    client.print(_stateMachine->getSpeedString());
-    client.println("</span></div>");
-
-    client.println("<div class='status-item'>");
-    client.println("<span class='status-label'>Safety:</span>");
-    client.print("<span class='status-value ");
-    client.print(statusClass);
-    client.print("'>");
-    client.print(_safetyMonitor->getStatusString());
-    client.println("</span></div>");
-
-    client.println("</div>");
-
-    // Sensor Data Card
-    client.println("<div class='card'>");
-    client.println("<h3><i class='fas fa-radar'></i>Sensor Readings</h3>");
-
-    client.println("<div class='status-item'>");
-    client.println("<span class='status-label'>Front Distance:</span>");
-    client.print("<span class='status-value'>");
-    client.print(_safetyMonitor->getFrontDistance(), 1);
-    client.println(" cm</span></div>");
-
-    client.println("<div class='status-item'>");
-    client.println("<span class='status-label'>Rear Distance:</span>");
-    client.print("<span class='status-value'>");
-    client.print(_safetyMonitor->getRearDistance(), 1);
-    client.println(" cm</span></div>");
-
-    client.println("<div class='status-item'>");
-    client.println("<span class='status-label'>User Present:</span>");
-    client.print("<span class='status-value ");
-    client.print(_safetyMonitor->isUserPresent() ? "status-ok" : "status-warning");
-    client.print("'>");
-    client.print(_safetyMonitor->isUserPresent() ? "Yes" : "No");
-    client.println("</span></div>");
-
-    client.println("</div>");
-    client.println("</div>");
-
-    // Navigation
-    client.println("<div class='nav-grid'>");
-    client.println("<a href='/control' class='nav-button'><i class='fas fa-gamepad'></i>Control Panel</a>");
-    client.println("<a href='/status' class='nav-button'><i class='fas fa-chart-line'></i>Status Monitor</a>");
-    client.println("<a href='/config' class='nav-button'><i class='fas fa-cog'></i>Configuration</a>");
-    client.println("<a href='/debug' class='nav-button'><i class='fas fa-bug'></i>Debug Tools</a>");
-    client.println("</div>");
-
-    // Quick Controls
-    client.println("<div class='card'>");
-    client.println("<h3><i class='fas fa-bolt'></i>Quick Actions</h3>");
-    client.println("<div class='control-grid'>");
-
-    if (_stateMachine->getCurrentState() == StateMachine::STATE_EMERGENCY) {
-        client.println("<a href='/api/reset' class='control-button emergency'><i class='fas fa-exclamation-triangle'></i>EMERGENCY RESET</a>");
-    } else {
-        client.println("<a href='/api/start' class='control-button success'><i class='fas fa-play'></i>Start</a>");
-        client.println("<a href='/api/stop' class='control-button warning'><i class='fas fa-stop'></i>Stop</a>");
-        client.println("<a href='/api/emergency' class='control-button emergency'><i class='fas fa-exclamation-triangle'></i>Emergency</a>");
-    }
-
-    client.println("</div>");
-    client.println("</div>");
-
-    client.println("<div class='footer'>");
-    client.println("<p>Wheelchair Swing Control System v1.0 | Auto-refresh in <span id='countdown'>10</span>s</p>");
-    client.println("</div>");
-
-    client.println("</div>");
-
-    // Auto-refresh script
-    client.println("<script>");
-    client.println("let countdown = 10;");
-    client.println("setInterval(() => {");
-    client.println("  countdown--;");
-    client.println("  document.getElementById('countdown').textContent = countdown;");
-    client.println("  if (countdown <= 0) location.reload();");
-    client.println("}, 1000);");
-    client.println("</script>");
-
-    client.println("</body></html>");
-}
-
-void WebServer::sendControlPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html lang='en'>");
-    client.println("<head>");
-    client.println("<meta charset='UTF-8'>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-    client.println("<title>Control Panel - Wheelchair Swing</title>");
-    client.println("<link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css' rel='stylesheet'>");
-
-    // Include the same modern CSS as home page
-    client.println("<style>");
-    client.println("* { margin: 0; padding: 0; box-sizing: border-box; }");
-    client.println("body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }");
-    client.println(".container { max-width: 800px; margin: 0 auto; padding: 20px; }");
-    client.println(".header { background: rgba(255,255,255,0.95); border-radius: 15px; padding: 30px; margin-bottom: 30px; backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.1); text-align: center; }");
-    client.println(".control-section { background: rgba(255,255,255,0.95); border-radius: 15px; padding: 25px; margin-bottom: 20px; backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.1); }");
-    client.println(".control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }");
-    client.println(".control-button { display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; padding: 25px; text-decoration: none; border-radius: 12px; font-weight: 600; transition: all 0.3s ease; min-height: 120px; }");
-    client.println(".control-button:hover { transform: translateY(-3px); }");
-    client.println(".control-button i { font-size: 2.5rem; margin-bottom: 10px; }");
-    client.println(".success { background: linear-gradient(135deg, #48bb78, #38a169); }");
-    client.println(".primary { background: linear-gradient(135deg, #4299e1, #3182ce); }");
-    client.println(".warning { background: linear-gradient(135deg, #ed8936, #dd6b20); }");
-    client.println(".emergency { background: linear-gradient(135deg, #f56565, #e53e3e); animation: pulse 2s infinite; }");
-    client.println(".back-button { display: inline-block; background: #718096; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-bottom: 20px; }");
-    client.println("</style>");
-
-    client.println("</head>");
-    client.println("<body>");
-    client.println("<div class='container'>");
-
-    client.println("<div class='header'>");
-    client.println("<h1><i class='fas fa-gamepad'></i> Control Panel</h1>");
-    client.println("<a href='/' class='back-button'><i class='fas fa-arrow-left'></i> Back to Home</a>");
-    client.println("</div>");
-
-    // Basic Controls
-    client.println("<div class='control-section'>");
-    client.println("<h3><i class='fas fa-play-circle'></i> Basic Controls</h3>");
-    client.println("<div class='control-grid'>");
-    client.println("<a href='/api/start' class='control-button success'><i class='fas fa-play'></i>START SWING</a>");
-    client.println("<a href='/api/stop' class='control-button warning'><i class='fas fa-stop'></i>STOP SWING</a>");
-    client.println("</div>");
-    client.println("</div>");
-
-    // Speed Controls
-    client.println("<div class='control-section'>");
-    client.println("<h3><i class='fas fa-tachometer-alt'></i> Speed Controls</h3>");
-    client.println("<div class='control-grid'>");
-    client.println("<a href='/api/speed-up' class='control-button primary'><i class='fas fa-arrow-up'></i>INCREASE SPEED</a>");
-    client.println("<a href='/api/speed-down' class='control-button primary'><i class='fas fa-arrow-down'></i>DECREASE SPEED</a>");
-    client.println("</div>");
-    client.println("</div>");
-
-    // Door Controls
-    client.println("<div class='control-section'>");
-    client.println("<h3><i class='fas fa-door-open'></i> Door Controls</h3>");
-    client.println("<div class='control-grid'>");
-    client.println("<a href='/api/door-open' class='control-button primary'><i class='fas fa-door-open'></i>OPEN DOOR</a>");
-    client.println("<a href='/api/door-close' class='control-button primary'><i class='fas fa-door-closed'></i>CLOSE DOOR</a>");
-    client.println("</div>");
-    client.println("</div>");
-
-    // Safety Controls
-    client.println("<div class='control-section'>");
-    client.println("<h3><i class='fas fa-shield-alt'></i> Safety Controls</h3>");
-    client.println("<div class='control-grid'>");
-    client.println("<a href='/api/emergency' class='control-button emergency'><i class='fas fa-exclamation-triangle'></i>EMERGENCY STOP</a>");
-
-    if (_stateMachine->getCurrentState() == StateMachine::STATE_EMERGENCY) {
-        client.println("<a href='/api/reset' class='control-button success'><i class='fas fa-undo'></i>RESET FROM EMERGENCY</a>");
-    }
-    if (_stateMachine->getCurrentState() == StateMachine::STATE_ERROR) {
-        client.println("<a href='/api/clear-error' class='control-button success'><i class='fas fa-check'></i>CLEAR ERROR</a>");
-    }
-
-    client.println("</div>");
-    client.println("</div>");
-
-    client.println("</div>");
-    client.println("</body></html>");
-}
-
-void WebServer::sendDemoPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html lang='en'>");
-    client.println("<head>");
-    client.println("<meta charset='UTF-8'>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-    client.println("<title>Demo Control Center - Wheelchair Swing</title>");
-    client.println("<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>");
-    client.println("<style>");
-
-    // CSS Styling
-    client.println("body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #1a202c; }");
-    client.println(".container { max-width: 1200px; margin: 0 auto; }");
-    client.println(".header { text-align: center; color: white; margin-bottom: 30px; }");
-    client.println(".card { background: rgba(255,255,255,0.95); padding: 25px; margin: 20px 0; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); backdrop-filter: blur(10px); }");
-
-    // Demo Cards Grid
-    client.println(".demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; margin: 30px 0; }");
-    client.println(".demo-card { background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,255,255,0.7)); border-radius: 20px; padding: 25px; text-align: center; transition: all 0.3s ease; border: 2px solid transparent; cursor: pointer; position: relative; overflow: hidden; }");
-    client.println(".demo-card:hover { transform: translateY(-5px); box-shadow: 0 15px 40px rgba(0,0,0,0.3); border-color: #667eea; }");
-    client.println(".demo-card.active { border-color: #28a745; background: linear-gradient(135deg, rgba(40, 167, 69, 0.1), rgba(40, 167, 69, 0.05)); }");
-    client.println(".demo-card.disabled { opacity: 0.6; cursor: not-allowed; }");
-
-    // Demo Card Content
-    client.println(".demo-icon { font-size: 3rem; margin-bottom: 15px; display: block; }");
-    client.println(".demo-title { font-size: 1.4rem; font-weight: bold; margin-bottom: 10px; color: #2d3748; }");
-    client.println(".demo-description { color: #4a5568; margin-bottom: 15px; line-height: 1.5; }");
-    client.println(".demo-specs { background: #f7fafc; padding: 10px; border-radius: 8px; margin: 15px 0; font-size: 0.9rem; }");
-    client.println(".demo-duration { color: #667eea; font-weight: bold; }");
-
-    // Control Buttons
-    client.println(".demo-controls { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }");
-    client.println(".btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.3s ease; }");
-    client.println(".btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }");
-    client.println(".btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }");
-    client.println(".btn-success { background: linear-gradient(135deg, #48bb78, #38a169); color: white; }");
-    client.println(".btn-danger { background: linear-gradient(135deg, #f56565, #e53e3e); color: white; }");
-    client.println(".btn-secondary { background: #e2e8f0; color: #4a5568; }");
-    client.println(".btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }");
-
-    // Status Panel
-    client.println(".status-panel { background: #2d3748; color: white; padding: 20px; border-radius: 15px; margin: 20px 0; }");
-    client.println(".status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }");
-    client.println(".status-item { text-align: center; }");
-    client.println(".status-value { font-size: 2rem; font-weight: bold; color: #667eea; }");
-    client.println(".status-label { font-size: 0.9rem; opacity: 0.8; }");
-
-    // Progress Bar
-    client.println(".progress-container { margin: 20px 0; }");
-    client.println(".progress-bar { background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; }");
-    client.println(".progress-fill { background: linear-gradient(135deg, #667eea, #764ba2); height: 100%; width: 0%; transition: width 0.3s ease; border-radius: 4px; }");
-    client.println(".progress-text { text-align: center; margin-top: 10px; font-weight: 600; color: #4a5568; }");
-
-    // Timeline
-    client.println(".timeline { margin: 30px 0; }");
-    client.println(".timeline-item { display: flex; align-items: center; margin: 15px 0; padding: 15px; background: rgba(255,255,255,0.7); border-radius: 10px; }");
-    client.println(".timeline-item.active { background: rgba(102, 126, 234, 0.1); border-left: 4px solid #667eea; }");
-    client.println(".timeline-item.completed { background: rgba(72, 187, 120, 0.1); border-left: 4px solid #48bb78; }");
-    client.println(".timeline-step { background: #667eea; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 15px; }");
-    client.println(".timeline-content { flex: 1; }");
-    client.println(".timeline-title { font-weight: bold; margin-bottom: 5px; }");
-    client.println(".timeline-description { color: #4a5568; font-size: 0.9rem; }");
-
-    // Responsive Design
-    client.println("@media (max-width: 768px) { .demo-grid { grid-template-columns: 1fr; } .status-grid { grid-template-columns: repeat(2, 1fr); } }");
-
-    client.println("</style>");
-    client.println("</head>");
-    client.println("<body>");
-
-    client.println(generateDemoHTML());
-
-    // JavaScript for demo functionality
-    client.println("<script>");
-
-    // Demo system variables
-    client.println("let currentDemo = -1;");
-    client.println("let demoActive = false;");
-    client.println("let demoProgress = 0;");
-    client.println("let demoStep = 0;");
-    client.println("let statusUpdateInterval;");
-
-    // Demo configurations
-    client.println("const demoConfigs = {");
-    client.println("  0: { name: 'Gentle Demo', duration: 120, steps: ['Introduction', 'Slow start', 'Speed demo', 'Door operation', 'Conclusion'] },");
-    client.println("  1: { name: 'Full Feature Demo', duration: 300, steps: ['System startup', 'Voice commands', 'Full speed', 'Safety systems', 'Advanced features', 'Conclusion'] },");
-    client.println("  2: { name: 'Safety Demo', duration: 180, steps: ['Obstacle detection', 'Emergency stop', 'User departure', 'Motor protection'] },");
-    client.println("  3: { name: 'Voice Control Demo', duration: 240, steps: ['Voice intro', 'Start commands', 'Speed control', 'Door control', 'Stop commands', 'Accuracy test'] }");
-    client.println("};");
-
-    // Start demo function
-    client.println("function startDemo(mode) {");
-    client.println("  if (demoActive) {");
-    client.println("    alert('Please stop the current demo first');");
-    client.println("    return;");
-    client.println("  }");
-    client.println("  ");
-    client.println("  fetch(`/api/demo-start?mode=${mode}`)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'started') {");
-    client.println("        currentDemo = mode;");
-    client.println("        demoActive = true;");
-    client.println("        demoProgress = 0;");
-    client.println("        demoStep = 0;");
-    client.println("        updateDemoUI();");
-    client.println("        startStatusUpdates();");
-    client.println("        showNotification(`${demoConfigs[mode].name} started successfully!`, 'success');");
-    client.println("      } else {");
-    client.println("        showNotification('Failed to start demo: ' + (data.error || 'Unknown error'), 'error');");
-    client.println("      }");
-    client.println("    })");
-    client.println("    .catch(error => showNotification('Network error: ' + error.message, 'error'));");
-    client.println("}");
-
-    // Stop demo function
-    client.println("function stopDemo() {");
-    client.println("  if (!demoActive) return;");
-    client.println("  ");
-    client.println("  fetch('/api/demo-stop')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.status === 'stopped') {");
-    client.println("        demoActive = false;");
-    client.println("        currentDemo = -1;");
-    client.println("        updateDemoUI();");
-    client.println("        stopStatusUpdates();");
-    client.println("        showNotification('Demo stopped successfully', 'info');");
-    client.println("      }");
-    client.println("    })");
-    client.println("    .catch(error => showNotification('Error stopping demo: ' + error.message, 'error'));");
-    client.println("}");
-
-    // Update demo UI
-    client.println("function updateDemoUI() {");
-    client.println("  // Update demo cards");
-    client.println("  document.querySelectorAll('.demo-card').forEach((card, index) => {");
-    client.println("    card.classList.remove('active', 'disabled');");
-    client.println("    if (demoActive) {");
-    client.println("      if (index === currentDemo) {");
-    client.println("        card.classList.add('active');");
-    client.println("      } else {");
-    client.println("        card.classList.add('disabled');");
-    client.println("      }");
-    client.println("    }");
-    client.println("  });");
-    client.println("  ");
-    client.println("  // Update control buttons");
-    client.println("  document.querySelectorAll('.start-btn').forEach((btn, index) => {");
-    client.println("    btn.disabled = demoActive && index !== currentDemo;");
-    client.println("    btn.textContent = (demoActive && index === currentDemo) ? 'Running...' : 'Start Demo';");
-    client.println("  });");
-    client.println("  ");
-    client.println("  document.getElementById('stopAllBtn').disabled = !demoActive;");
-    client.println("  ");
-    client.println("  // Show/hide progress panel");
-    client.println("  const progressPanel = document.getElementById('progressPanel');");
-    client.println("  progressPanel.style.display = demoActive ? 'block' : 'none';");
-    client.println("}");
-
-    // Start status updates
-    client.println("function startStatusUpdates() {");
-    client.println("  statusUpdateInterval = setInterval(updateDemoStatus, 2000);");
-    client.println("}");
-
-    // Stop status updates
-    client.println("function stopStatusUpdates() {");
-    client.println("  if (statusUpdateInterval) {");
-    client.println("    clearInterval(statusUpdateInterval);");
-    client.println("    statusUpdateInterval = null;");
-    client.println("  }");
-    client.println("}");
-
-    // Update demo status
-    client.println("function updateDemoStatus() {");
-    client.println("  if (!demoActive) return;");
-    client.println("  ");
-    client.println("  fetch('/api/demo-status')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (!data.active) {");
-    client.println("        // Demo completed automatically");
-    client.println("        demoActive = false;");
-    client.println("        currentDemo = -1;");
-    client.println("        updateDemoUI();");
-    client.println("        stopStatusUpdates();");
-    client.println("        showNotification('Demo completed successfully!', 'success');");
-    client.println("        return;");
-    client.println("      }");
-    client.println("      ");
-    client.println("      // Update progress");
-    client.println("      demoProgress = data.progress || 0;");
-    client.println("      demoStep = data.step || 0;");
-    client.println("      ");
-    client.println("      // Update progress bar");
-    client.println("      document.getElementById('progressFill').style.width = demoProgress + '%';");
-    client.println("      document.getElementById('progressText').textContent = `${Math.round(demoProgress)}% Complete - Step ${demoStep}`;");
-    client.println("      ");
-    client.println("      // Update status values");
-    client.println("      document.getElementById('statusDemo').textContent = demoConfigs[currentDemo]?.name || 'Unknown';");
-    client.println("      document.getElementById('statusStep').textContent = demoStep;");
-    client.println("      document.getElementById('statusElapsed').textContent = Math.floor(data.elapsed / 60) + ':' + String(data.elapsed % 60).padStart(2, '0');");
-    client.println("      document.getElementById('statusRemaining').textContent = Math.floor((data.duration - data.elapsed) / 60) + ':' + String((data.duration - data.elapsed) % 60).padStart(2, '0');");
-    client.println("      ");
-    client.println("      // Update timeline");
-    client.println("      updateTimeline(currentDemo, demoStep);");
-    client.println("    })");
-    client.println("    .catch(error => console.error('Status update error:', error));");
-    client.println("}");
-
-    // Update timeline
-    client.println("function updateTimeline(demoMode, currentStep) {");
-    client.println("  const steps = demoConfigs[demoMode]?.steps || [];");
-    client.println("  const timelineContainer = document.getElementById('timeline');");
-    client.println("  timelineContainer.innerHTML = '';");
-    client.println("  ");
-    client.println("  steps.forEach((stepName, index) => {");
-    client.println("    const item = document.createElement('div');");
-    client.println("    item.className = 'timeline-item';");
-    client.println("    ");
-    client.println("    if (index < currentStep) item.classList.add('completed');");
-    client.println("    if (index === currentStep) item.classList.add('active');");
-    client.println("    ");
-    client.println("    item.innerHTML = `");
-    client.println("      <div class='timeline-step'>${index + 1}</div>");
-    client.println("      <div class='timeline-content'>");
-    client.println("        <div class='timeline-title'>${stepName}</div>");
-    client.println("        <div class='timeline-description'>${getStepDescription(demoMode, index)}</div>");
-    client.println("      </div>");
-    client.println("    `;");
-    client.println("    ");
-    client.println("    timelineContainer.appendChild(item);");
-    client.println("  });");
-    client.println("}");
-
-    // Get step description
-    client.println("function getStepDescription(demoMode, stepIndex) {");
-    client.println("  const descriptions = {");
-    client.println("    0: ['System introduction and safety checks', 'Gentle swing motion start', 'Speed adjustment demonstration', 'Door operation showcase', 'Demo conclusion'],");
-    client.println("    1: ['Complete system initialization', 'Voice command demonstrations', 'High-speed operation showcase', 'Safety system demonstrations', 'Advanced feature showcase', 'Comprehensive demo conclusion'],");
-    client.println("    2: ['Front and rear obstacle detection', 'Emergency stop procedures', 'User departure safety', 'Motor protection systems'],");
-    client.println("    3: ['Voice recognition introduction', 'Start/Go commands', 'Speed control commands', 'Door control commands', 'Stop commands', 'Recognition accuracy display']");
-    client.println("  };");
-    client.println("  return descriptions[demoMode]?.[stepIndex] || 'Demo step in progress';");
-    client.println("}");
-
-    // Show notification
-    client.println("function showNotification(message, type) {");
-    client.println("  const notification = document.createElement('div');");
-    client.println("  notification.style.cssText = `");
-    client.println("    position: fixed; top: 20px; right: 20px; z-index: 1000;");
-    client.println("    padding: 15px 20px; border-radius: 8px; color: white;");
-    client.println("    font-weight: 600; max-width: 400px; transform: translateX(400px);");
-    client.println("    transition: transform 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.3);");
-    client.println("  `;");
-    client.println("  ");
-    client.println("  switch(type) {");
-    client.println("    case 'success': notification.style.background = 'linear-gradient(135deg, #48bb78, #38a169)'; break;");
-    client.println("    case 'error': notification.style.background = 'linear-gradient(135deg, #f56565, #e53e3e)'; break;");
-    client.println("    case 'info': notification.style.background = 'linear-gradient(135deg, #4299e1, #3182ce)'; break;");
-    client.println("    default: notification.style.background = 'linear-gradient(135deg, #667eea, #764ba2)'; break;");
-    client.println("  }");
-    client.println("  ");
-    client.println("  notification.textContent = message;");
-    client.println("  document.body.appendChild(notification);");
-    client.println("  ");
-    client.println("  setTimeout(() => notification.style.transform = 'translateX(0)', 100);");
-    client.println("  setTimeout(() => {");
-    client.println("    notification.style.transform = 'translateX(400px)';");
-    client.println("    setTimeout(() => document.body.removeChild(notification), 300);");
-    client.println("  }, 4000);");
-    client.println("}");
-
-    // Initialize on page load
-    client.println("document.addEventListener('DOMContentLoaded', function() {");
-    client.println("  updateDemoUI();");
-    client.println("  ");
-    client.println("  // Check if demo is already running");
-    client.println("  fetch('/api/demo-status')");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      if (data.active) {");
-    client.println("        currentDemo = data.mode;");
-    client.println("        demoActive = true;");
-    client.println("        demoProgress = data.progress || 0;");
-    client.println("        demoStep = data.step || 0;");
-    client.println("        updateDemoUI();");
-    client.println("        startStatusUpdates();");
-    client.println("      }");
-    client.println("    })");
-    client.println("    .catch(error => console.error('Initial status check failed:', error));");
-    client.println("});");
-
-    client.println("</script>");
-    client.println("</body>");
-    client.println("</html>");
-}
-
-String WebServer::generateDemoHTML() {
-    String html = "<div class='container'>";
-
-    // Header
-    html += "<div class='header'>";
-    html += "<h1><i class='🎭'></i> Demo Control Center</h1>";
-    html += "<p>Professional demonstration modes for wheelchair swing system</p>";
-    html += "<p><a href='/' style='color: white; text-decoration: underline;'>← Back to Home</a></p>";
-    html += "</div>";
-
-    // Demo Mode Cards
-    html += "<div class='demo-grid'>";
-
-    // Gentle Demo Card
-    html += "<div class='demo-card' id='demo-0'>";
-    html += "<span class='demo-icon'>🌱</span>";
-    html += "<div class='demo-title'>Gentle Demo</div>";
-    html += "<div class='demo-description'>Safe introduction perfect for first-time users and visitors. Showcases basic functionality with conservative settings.</div>";
-    html += "<div class='demo-specs'>";
-    html += "<strong>Settings:</strong> 300 RPM max, 50cm safety zone<br>";
-    html += "<strong>Duration:</strong> <span class='demo-duration'>2 minutes</span><br>";
-    html += "<strong>Features:</strong> Basic operation, safety intro";
-    html += "</div>";
-    html += "<div class='demo-controls'>";
-    html += "<button class='btn btn-primary start-btn' onclick='startDemo(0)'>Start Demo</button>";
-    html += "</div>";
-    html += "</div>";
-
-    // Full Feature Demo Card
-    html += "<div class='demo-card' id='demo-1'>";
-    html += "<span class='demo-icon'>🚀</span>";
-    html += "<div class='demo-title'>Full Feature Demo</div>";
-    html += "<div class='demo-description'>Comprehensive showcase of all system capabilities. Perfect for technical audiences and stakeholder presentations.</div>";
-    html += "<div class='demo-specs'>";
-    html += "<strong>Settings:</strong> 600 RPM max, 30cm safety zone<br>";
-    html += "<strong>Duration:</strong> <span class='demo-duration'>5 minutes</span><br>";
-    html += "<strong>Features:</strong> All systems, voice control, safety";
-    html += "</div>";
-    html += "<div class='demo-controls'>";
-    html += "<button class='btn btn-primary start-btn' onclick='startDemo(1)'>Start Demo</button>";
-    html += "</div>";
-    html += "</div>";
-
-    // Safety Demo Card
-    html += "<div class='demo-card' id='demo-2'>";
-    html += "<span class='demo-icon'>🛡️</span>";
-    html += "<div class='demo-title'>Safety Demo</div>";
-    html += "<div class='demo-description'>Focused demonstration of safety systems and emergency procedures. Shows obstacle detection and response protocols.</div>";
-    html += "<div class='demo-specs'>";
-    html += "<strong>Settings:</strong> 400 RPM max, 40cm safety zone<br>";
-    html += "<strong>Duration:</strong> <span class='demo-duration'>3 minutes</span><br>";
-    html += "<strong>Features:</strong> Safety systems, emergency procedures";
-    html += "</div>";
-    html += "<div class='demo-controls'>";
-    html += "<button class='btn btn-primary start-btn' onclick='startDemo(2)'>Start Demo</button>";
-    html += "</div>";
-    html += "</div>";
-
-    // Voice Control Demo Card
-    html += "<div class='demo-card' id='demo-3'>";
-    html += "<span class='demo-icon'>🎤</span>";
-    html += "<div class='demo-title'>Voice Control Demo</div>";
-    html += "<div class='demo-description'>Highlights voice recognition capabilities and hands-free operation. Demonstrates all voice commands and accuracy.</div>";
-    html += "<div class='demo-specs'>";
-    html += "<strong>Settings:</strong> 450 RPM max, 35cm safety zone<br>";
-    html += "<strong>Duration:</strong> <span class='demo-duration'>4 minutes</span><br>";
-    html += "<strong>Features:</strong> Voice commands, audio feedback";
-    html += "</div>";
-    html += "<div class='demo-controls'>";
-    html += "<button class='btn btn-primary start-btn' onclick='startDemo(3)'>Start Demo</button>";
-    html += "</div>";
-    html += "</div>";
-
-    html += "</div>"; // End demo-grid
-
-    // Global Demo Controls
-    html += "<div class='card'>";
-    html += "<h3>Demo Control</h3>";
-    html += "<div style='text-align: center; margin: 20px 0;'>";
-    html += "<button class='btn btn-danger' id='stopAllBtn' onclick='stopDemo()' disabled>";
-    html += "<i class='⏹️'></i> Stop Current Demo";
-    html += "</button>";
-    html += "</div>";
-    html += "</div>";
-
-    // Progress Panel (hidden by default)
-    html += "<div class='card' id='progressPanel' style='display: none;'>";
-    html += "<h3>Demo Progress</h3>";
-    html += "<div class='progress-container'>";
-    html += "<div class='progress-bar'>";
-    html += "<div class='progress-fill' id='progressFill'></div>";
-    html += "</div>";
-    html += "<div class='progress-text' id='progressText'>Demo not started</div>";
-    html += "</div>";
-    html += "</div>";
-
-    // Status Panel
-    html += "<div class='status-panel'>";
-    html += "<h3 style='margin-top: 0; color: white; text-align: center;'>Live Demo Status</h3>";
-    html += "<div class='status-grid'>";
-    html += "<div class='status-item'>";
-    html += "<div class='status-value' id='statusDemo'>None</div>";
-    html += "<div class='status-label'>Current Demo</div>";
-    html += "</div>";
-    html += "<div class='status-item'>";
-    html += "<div class='status-value' id='statusStep'>0</div>";
-    html += "<div class='status-label'>Current Step</div>";
-    html += "</div>";
-    html += "<div class='status-item'>";
-    html += "<div class='status-value' id='statusElapsed'>0:00</div>";
-    html += "<div class='status-label'>Time Elapsed</div>";
-    html += "</div>";
-    html += "<div class='status-item'>";
-    html += "<div class='status-value' id='statusRemaining'>0:00</div>";
-    html += "<div class='status-label'>Time Remaining</div>";
-    html += "</div>";
-    html += "</div>";
-    html += "</div>";
-
-    // Timeline Panel
-    html += "<div class='card'>";
-    html += "<h3>Demo Timeline</h3>";
-    html += "<div class='timeline' id='timeline'>";
-    html += "<div class='timeline-item'>";
-    html += "<div class='timeline-step'>1</div>";
-    html += "<div class='timeline-content'>";
-    html += "<div class='timeline-title'>Select a demo mode to see timeline</div>";
-    html += "<div class='timeline-description'>Choose from Gentle, Full Feature, Safety, or Voice Control demos above</div>";
-    html += "</div>";
-    html += "</div>";
-    html += "</div>";
-    html += "</div>";
-
-    // Statistics Panel
-    html += "<div class='card'>";
-    html += "<h3>Demo Statistics</h3>";
-    html += "<p>Total demo runs: <strong>Loading...</strong></p>";
-    html += "<p>Most popular demo: <strong>Loading...</strong></p>";
-    html += "<p>Average session duration: <strong>Loading...</strong></p>";
-    html += "</div>";
-
-    html += "</div>"; // End container
-
-    return html;
-}
-
-
-void WebServer::sendStatusPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html><head><title>Status Monitor</title>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1'>");
-    client.println("<meta http-equiv='refresh' content='2'>");
-    client.println("</head><body>");
-    client.println("<h1>Status Monitor</h1>");
-    client.println("<p><a href='/'>← Back to Home</a></p>");
-    client.println("<p>Real-time status monitoring page (auto-refreshes every 2 seconds)</p>");
-    client.println("</body></html>");
-}
-
-void WebServer::sendConfigPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html><head><title>Configuration</title>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1'>");
-    client.println("</head><body>");
-    client.println("<h1>Configuration</h1>");
-    client.println("<p><a href='/'>← Back to Home</a></p>");
-    client.println("<p>Configuration settings coming soon...</p>");
-    client.println("</body></html>");
-}
-
-void WebServer::sendDebugPage(WiFiClient& client) {
-    sendHttpHeader(client);
-
-    client.println("<!DOCTYPE html>");
-    client.println("<html><head><title>Debug Tools</title>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1'>");
-    client.println("</head><body>");
-    client.println("<h1>Debug Tools</h1>");
-    client.println("<p><a href='/'>← Back to Home</a></p>");
-    client.println("<p>Debug information and tools coming soon...</p>");
-    client.println("</body></html>");
-}
-
-void WebServer::send404Page(WiFiClient& client) {
-    client.println("HTTP/1.1 404 Not Found");
-    client.println("Content-Type: text/html");
-    client.println("Connection: close");
-    client.println();
-    client.println("<!DOCTYPE html>");
-    client.println("<html><head><title>404 Not Found</title></head><body>");
-    client.println("<h1>404 - Page Not Found</h1>");
-    client.println("<p><a href='/'>← Back to Home</a></p>");
-    client.println("</body></html>");
-}
-
-void WebServer::handleControlCommand(WiFiClient& client, String command) {
-    Serial.print("API Command received: ");
-    Serial.println(command);
-
-    if (command == "start") {
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-    } else if (command == "stop") {
-        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-    } else if (command == "speed-up") {
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
-    } else if (command == "speed-down") {
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
-    } else if (command == "door-open" || command == "door-close") {
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
-    } else if (command == "emergency") {
-        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
-    } else if (command == "reset") {
-        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY_RESET);
-    } else if (command == "clear-error") {
-        _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
-    }
-
-    // Send response and redirect back
-    client.println("HTTP/1.1 302 Found");
-    client.println("Location: /");
-    client.println("Connection: close");
-    client.println();
-}
-
-void WebServer::handleConfigUpdate(WiFiClient& client, String params) {
-    RuntimeConfig& config = RuntimeConfig::getInstance();
-
-    // Parse: setting=frontWarningDistance&value=35.0
-    int settingStart = params.indexOf("setting=") + 8;
-    int settingEnd = params.indexOf("&", settingStart);
-    String setting = params.substring(settingStart, settingEnd);
-
-    int valueStart = params.indexOf("value=") + 6;
-    String value = params.substring(valueStart);
-
-    bool success = false;
-
-    if (setting == "frontWarningDistance") {
-        success = config.setWarningDistance(value.toFloat());
-    } else if (setting == "frontCriticalDistance") {
-        success = config.setCriticalDistance(value.toFloat());
-    } else if (setting == "pressureThreshold") {
-        success = config.setPressureThreshold(value.toInt());
-    } else if (setting == "speedLow") {
-        success = config.setSpeedLow(value.toInt());
-    } else if (setting == "speedMedium") {
-        success = config.setSpeedMedium(value.toInt());
-    } else if (setting == "speedHigh") {
-        success = config.setSpeedHigh(value.toInt());
-    } else if (setting == "audioFeedback") {
-        config.setAudioFeedbackEnabled(value == "true");
-        success = true;
-    } else if (setting == "doorTimeout") {
-        success = config.setDoorTimeoutMs(value.toInt());
-    }
-
-    if (success) {
-        config.save(); // Save immediately
-        sendJsonResponse(client, "{\"status\":\"success\",\"message\":\"Setting updated and saved\"}");
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Invalid setting or value out of range\"}");
-    }
+    _logIndex = (_logIndex + 1) % MAX_LOGS;
 }
 
 void WebServer::exportConfiguration(WiFiClient& client) {
     RuntimeConfig& config = RuntimeConfig::getInstance();
     String jsonConfig = config.exportToJson();
 
-    sendHttpHeader(client, "application/json");
-    client.println(jsonConfig);
+    client.println(F("HTTP/1.1 200 OK"));
+    client.println(F("Content-Type: application/octet-stream"));  // Force download
+    client.println(F("Content-Disposition: attachment; filename=\"wheelchair-swing-config.json\""));
+    client.print(F("Content-Length: "));
+    client.println(jsonConfig.length());
+    client.println(F("Connection: close"));
+    client.println();  // Empty line to end headers
+    client.print(jsonConfig);  // Send the actual JSON content
+
+    // Log the export
+    logEvent("config", "Configuration exported", "SUCCESS", 0);
 }
 
-// Add these methods at the end of WebServer.cpp:
 
-void WebServer::handleDemoAPI(WiFiClient& client, String command) {
-    Serial.print("Demo API Command: ");
-    Serial.println(command);
 
-    if (command.startsWith("-start")) {
-        startDemo(client, command);
-    } else if (command == "-stop") {
-        stopDemo(client);
-    } else if (command == "-status") {
-        getDemoStatus(client);
-    } else {
-        sendJsonResponse(client, "{\"error\":\"Unknown demo command\"}");
-    }
+String WebServer::getCurrentDateTime()
+{
+    unsigned long currentTime = millis();
+    unsigned long seconds = currentTime / 1000;
+    unsigned long minutes = seconds / 60;
+    unsigned long hours = minutes / 60;
+
+    return String(hours % 24) + ":" +
+           String((minutes % 60) < 10 ? "0" : "") + String(minutes % 60) + ":" +
+           String((seconds % 60) < 10 ? "0" : "") + String(seconds % 60);
 }
 
-void WebServer::startDemo(WiFiClient& client, String params) {
-    // Extract demo mode: -start?mode=1 (where 1 = DEMO_FULL_FEATURE)
-    int modeStart = params.indexOf("mode=") + 5;
-    int modeValue = params.substring(modeStart).toInt();
-
-    if (modeValue < 0 || modeValue >= RuntimeConfig::DEMO_NONE) {
-        sendJsonResponse(client, "{\"error\":\"Invalid demo mode\"}");
-        return;
-    }
-
-    RuntimeConfig::DemoMode mode = static_cast<RuntimeConfig::DemoMode>(modeValue);
-    RuntimeConfig& config = RuntimeConfig::getInstance();
-
-    // Stop any active demo first
-    if (_demoActive) {
-        stopDemo(client);
-        delay(1000);
-    }
-
-    // Start new demo
-    config.setDemoMode(mode);
-    config.incrementDemoRunCount();
-
-    _demoActive = true;
-    _currentDemo = mode;
-    _demoStartTime = millis();
-    _demoStep = 0;
-    _demoSequenceActive = true;
-
-    // Log demo start
-    RuntimeConfig::DemoConfig demoConfig = config.getDemoConfig(mode);
-    logDemoEvent("start", "Demo started: " + demoConfig.description);
-
-    String response = "{\"status\":\"started\",\"mode\":" + String(modeValue) +
-                     ",\"duration\":" + String(demoConfig.duration) + "}";
-    sendJsonResponse(client, response);
-
-    Serial.print("Demo started: Mode ");
-    Serial.println(modeValue);
-
-    // Start demo sequence in background
-    runDemoSequence(mode);
+String WebServer::getSystemStatus()
+{
+    String status = "{";
+    status += "\"state\":\"" + String(_stateMachine->getStateString()) + "\",";
+    status += "\"speed\":\"" + String(_stateMachine->getSpeedString()) + "\",";
+    status += "\"safety\":\"" + String(_safetyMonitor->getStatusString()) + "\",";
+    status += "\"frontDistance\":" + String(_safetyMonitor->getFrontDistance()) + ",";
+    status += "\"rearDistance\":" + String(_safetyMonitor->getRearDistance()) + ",";
+    status += "\"userPresent\":" + String(_safetyMonitor->isUserPresent() ? "true" : "false") + ",";
+    status += "\"uptime\":" + String(millis() / 1000);
+    status += "}";
+    return status;
 }
 
-void WebServer::stopDemo(WiFiClient& client) {
-    if (!_demoActive) {
-        sendJsonResponse(client, "{\"error\":\"No demo active\"}");
-        return;
-    }
+// Simple motor test implementations
+void WebServer::testMotorLeft(WiFiClient &client, String params)
+{
+    _testState.motorTestActive = true;
+    _testState.currentMotorTest = "left";
+    _testState.motorTestStartTime = millis();
 
-    RuntimeConfig& config = RuntimeConfig::getInstance();
-    config.stopDemo();
-
-    _demoActive = false;
-    _currentDemo = RuntimeConfig::DEMO_NONE;
-    _demoSequenceActive = false;
-
-    logDemoEvent("stop", "Demo stopped by user");
-
-    sendJsonResponse(client, "{\"status\":\"stopped\"}");
-    Serial.println("Demo stopped");
+    sendJsonResponse(client, F("{\"status\":\"testing_left_motor\"}"));
+    logEvent("motor", "Left motor test started", "STARTED");
 }
 
-void WebServer::getDemoStatus(WiFiClient& client) {
-    RuntimeConfig& config = RuntimeConfig::getInstance();
+void WebServer::testMotorRight(WiFiClient &client, String params)
+{
+    _testState.motorTestActive = true;
+    _testState.currentMotorTest = "right";
+    _testState.motorTestStartTime = millis();
 
+    sendJsonResponse(client, F("{\"status\":\"testing_right_motor\"}"));
+    logEvent("motor", "Right motor test started", "STARTED");
+}
+
+void WebServer::testMotorSync(WiFiClient &client)
+{
+    _testState.motorTestActive = true;
+    _testState.currentMotorTest = "sync";
+    _testState.motorTestStartTime = millis();
+
+    sendJsonResponse(client, F("{\"status\":\"testing_motor_sync\"}"));
+    logEvent("motor", "Motor synchronization test started", "STARTED");
+}
+
+void WebServer::stopMotorTest(WiFiClient &client)
+{
+    _testState.motorTestActive = false;
+    _testState.currentMotorTest = "";
+
+    sendJsonResponse(client, F("{\"status\":\"motor_test_stopped\"}"));
+    logEvent("motor", "Motor test stopped", "STOPPED");
+}
+
+void WebServer::getMotorTestStatus(WiFiClient &client)
+{
     String response = "{";
-    response += "\"active\":" + String(_demoActive ? "true" : "false") + ",";
-    response += "\"mode\":" + String(_currentDemo) + ",";
-    response += "\"step\":" + String(_demoStep) + ",";
-
-    if (_demoActive) {
-        unsigned long elapsed = (millis() - _demoStartTime) / 1000;
-        RuntimeConfig::DemoConfig demoConfig = config.getDemoConfig(_currentDemo);
-        float progress = (float)elapsed / demoConfig.duration * 100;
-
-        response += "\"elapsed\":" + String(elapsed) + ",";
-        response += "\"duration\":" + String(demoConfig.duration) + ",";
-        response += "\"progress\":" + String(progress) + ",";
-        response += "\"description\":\"" + demoConfig.description + "\"";
-    } else {
-        response += "\"elapsed\":0,\"duration\":0,\"progress\":0,\"description\":\"\"";
-    }
-
-    response += ",\"total_runs\":" + String(config.getDemoRunCount());
+    response += "\"active\":" + String(_testState.motorTestActive ? "true" : "false") + ",";
+    response += "\"test\":\"" + _testState.currentMotorTest + "\",";
+    response += "\"leftPosition\":" + String(_testState.leftMotorPosition) + ",";
+    response += "\"rightPosition\":" + String(_testState.rightMotorPosition) + ",";
+    response += "\"elapsed\":" + String(_testState.motorTestActive ? (millis() - _testState.motorTestStartTime) : 0);
     response += "}";
 
     sendJsonResponse(client, response);
 }
 
-void WebServer::runDemoSequence(RuntimeConfig::DemoMode mode) {
-    switch(mode) {
-        case RuntimeConfig::DEMO_GENTLE:
-            runGentleDemo();
-            break;
-        case RuntimeConfig::DEMO_FULL_FEATURE:
-            runFullFeatureDemo();
-            break;
-        case RuntimeConfig::DEMO_SAFETY:
-            runSafetyDemo();
-            break;
-        case RuntimeConfig::DEMO_VOICE_CONTROL:
-            runVoiceControlDemo();
-            break;
-        default:
-            break;
-    }
+void WebServer::resetMotorPositions()
+{
+    _testState.leftMotorPosition = 0;
+    _testState.rightMotorPosition = 0;
+    logEvent("motor", "Motor positions reset", "INFO");
 }
 
-void WebServer::runGentleDemo() {
-    logDemoEvent("gentle", "Starting gentle demo sequence");
+// Simple demo implementations
+void WebServer::startDemo(WiFiClient &client, String params)
+{
+    int modeStart = params.indexOf("mode=") + 5;
+    String mode = params.substring(modeStart);
 
-    // Step 1: Introduction (10 seconds)
-    _demoStep = 1;
-    logDemoEvent("gentle", "Step 1: System introduction");
-    delay(10000);
+    _testState.demoActive = true;
+    _testState.currentDemo = mode;
+    _testState.demoStartTime = millis();
+    _testState.demoStep = 0;
 
-    // Step 2: Slow swing start (20 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 2;
-        logDemoEvent("gentle", "Step 2: Starting gentle swing motion");
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(20000);
-    }
+    String response = "{\"status\":\"demo_started\",\"mode\":\"" + mode + "\"}";
+    sendJsonResponse(client, response);
 
-    // Step 3: Speed demonstration (30 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 3;
-        logDemoEvent("gentle", "Step 3: Speed adjustment demonstration");
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
-        delay(15000);
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
-        delay(15000);
-    }
-
-    // Step 4: Door operation (20 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 4;
-        logDemoEvent("gentle", "Step 4: Door operation demonstration");
-        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-        delay(2000);
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
-        delay(10000);
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
-        delay(8000);
-    }
-
-    // Step 5: Conclusion
-    if (_demoSequenceActive) {
-        _demoStep = 5;
-        logDemoEvent("gentle", "Step 5: Demo conclusion");
-        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-        delay(5000);
-    }
-
-    // Auto-stop demo
-    if (_demoSequenceActive) {
-        RuntimeConfig& config = RuntimeConfig::getInstance();
-        config.stopDemo();
-        _demoActive = false;
-        _demoSequenceActive = false;
-        logDemoEvent("gentle", "Gentle demo completed automatically");
-    }
+    logEvent("demo", "Demo started: " + mode, "STARTED");
 }
 
-void WebServer::runFullFeatureDemo() {
-    logDemoEvent("full", "Starting full feature demo sequence");
+void WebServer::stopDemo(WiFiClient &client)
+{
+    _testState.demoActive = false;
+    _testState.currentDemo = "";
 
-    // Step 1: Complete system startup (15 seconds)
-    _demoStep = 1;
-    logDemoEvent("full", "Step 1: System startup and initialization");
-    delay(15000);
-
-    // Step 2: Voice command demonstration (60 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 2;
-        logDemoEvent("full", "Step 2: Voice command demonstration");
-        // Simulate voice commands
-        delay(10000);
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(15000);
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
-        delay(15000);
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
-        delay(20000);
-    }
-
-    // Step 3: Full speed operation (90 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 3;
-        logDemoEvent("full", "Step 3: Full speed operation showcase");
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
-        delay(30000);
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
-        delay(60000);
-    }
-
-    // Step 4: Safety systems demonstration (60 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 4;
-        logDemoEvent("full", "Step 4: Safety systems demonstration");
-        // Demonstrate obstacle detection
-        simulateObstacle(25.0, "front");
-        delay(10000);
-        _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
-        delay(50000);
-    }
-
-    // Step 5: Advanced features (75 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 5;
-        logDemoEvent("full", "Step 5: Advanced features showcase");
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(30000);
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
-        delay(15000);
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
-        delay(30000);
-    }
-
-    // Step 6: Conclusion
-    if (_demoSequenceActive) {
-        _demoStep = 6;
-        logDemoEvent("full", "Step 6: Demo conclusion");
-        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-        delay(10000);
-    }
-
-    // Auto-stop demo
-    if (_demoSequenceActive) {
-        RuntimeConfig& config = RuntimeConfig::getInstance();
-        config.stopDemo();
-        _demoActive = false;
-        _demoSequenceActive = false;
-        logDemoEvent("full", "Full feature demo completed automatically");
-    }
+    sendJsonResponse(client, F("{\"status\":\"demo_stopped\"}"));
+    logEvent("demo", "Demo stopped", "STOPPED");
 }
 
-void WebServer::runSafetyDemo() {
-    logDemoEvent("safety", "Starting safety demo sequence");
+void WebServer::getDemoStatus(WiFiClient &client)
+{
+    String response = "{";
+    response += "\"active\":" + String(_testState.demoActive ? "true" : "false") + ",";
+    response += "\"mode\":\"" + _testState.currentDemo + "\",";
+    response += "\"step\":" + String(_testState.demoStep) + ",";
+    response += "\"elapsed\":" + String(_testState.demoActive ? (millis() - _testState.demoStartTime) : 0);
+    response += "}";
 
-    // Enable safety override for demo
-    _safetyOverrideEnabled = true;
-    _safetyOverrideTimeout = millis() + (10 * 60 * 1000); // 10 minutes
-
-    // Step 1: Obstacle detection demo (60 seconds)
-    _demoStep = 1;
-    logDemoEvent("safety", "Step 1: Obstacle detection demonstration");
-    _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-    delay(10000);
-
-    // Simulate front obstacle
-    simulateObstacle(20.0, "front");
-    delay(15000);
-    _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
-    delay(10000);
-
-    // Simulate rear obstacle
-    simulateObstacle(15.0, "rear");
-    delay(15000);
-    _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
-    delay(10000);
-
-    // Step 2: Emergency stop demonstration (30 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 2;
-        logDemoEvent("safety", "Step 2: Emergency stop demonstration");
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(10000);
-        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
-        delay(10000);
-        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY_RESET);
-        delay(10000);
-    }
-
-    // Step 3: User departure simulation (45 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 3;
-        logDemoEvent("safety", "Step 3: User departure safety demonstration");
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(15000);
-        simulateUserDeparture();
-        delay(15000);
-        _stateMachine->processEvent(StateMachine::EVENT_ERROR_CLEARED);
-        delay(15000);
-    }
-
-    // Step 4: Motor protection demo (45 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 4;
-        logDemoEvent("safety", "Step 4: Motor protection demonstration");
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(15000);
-        simulateMotorStall();
-        delay(15000);
-        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY_RESET);
-        delay(15000);
-    }
-
-    // Disable safety override
-    _safetyOverrideEnabled = false;
-
-    // Auto-stop demo
-    if (_demoSequenceActive) {
-        RuntimeConfig& config = RuntimeConfig::getInstance();
-        config.stopDemo();
-        _demoActive = false;
-        _demoSequenceActive = false;
-        logDemoEvent("safety", "Safety demo completed automatically");
-    }
+    sendJsonResponse(client, response);
 }
 
-void WebServer::runVoiceControlDemo() {
-    logDemoEvent("voice", "Starting voice control demo sequence");
+// Start ramp test - MISSING IMPLEMENTATION
+void WebServer::startRampTest(WiFiClient& client, String params) {
+    _testState.motorTestActive = true;
+    _testState.currentMotorTest = "ramp";
+    _testState.motorTestStartTime = millis();
 
-    // Step 1: Voice recognition introduction (30 seconds)
-    _demoStep = 1;
-    logDemoEvent("voice", "Step 1: Voice recognition system introduction");
-    delay(30000);
+    sendJsonResponse(client, F("{\"status\":\"started\",\"test\":\"ramp\"}"));
+    logEvent("motor", "Motor ramp test started", "STARTED", 0);
 
-    // Step 2: Start command demo (30 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 2;
-        logDemoEvent("voice", "Step 2: 'GO' voice command demonstration");
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(30000);
+    // Simulate ramp test sequence
+    for (int speed = 100; speed <= 600; speed += 50) {
+        if (_leftStepper) {
+            // Would control actual stepper here
+            // _leftStepper->setSpeed(speed);
+        }
+        if (_rightStepper) {
+            // Would control actual stepper here
+            // _rightStepper->setSpeed(speed);
+        }
+
+        String logMsg = "Ramp test speed: " + String(speed) + " RPM";
+        logEvent("motor", logMsg, "RUNNING", 0);
+
+        delay(1000); // Hold each speed for 1 second
     }
 
-    // Step 3: Speed control commands (60 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 3;
-        logDemoEvent("voice", "Step 3: Speed control voice commands");
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
-        delay(20000);
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_UP);
-        delay(20000);
-        _stateMachine->processEvent(StateMachine::EVENT_SPEED_DOWN);
-        delay(20000);
-    }
-
-    // Step 4: Door control commands (60 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 4;
-        logDemoEvent("voice", "Step 4: Door control voice commands");
-        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-        delay(10000);
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
-        delay(20000);
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
-        delay(30000);
-    }
-
-    // Step 5: Stop command demo (30 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 5;
-        logDemoEvent("voice", "Step 5: 'STOP' voice command demonstration");
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        delay(15000);
-        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-        delay(15000);
-    }
-
-    // Step 6: Voice recognition accuracy showcase (30 seconds)
-    if (_demoSequenceActive) {
-        _demoStep = 6;
-        logDemoEvent("voice", "Step 6: Voice recognition accuracy showcase");
-        delay(30000);
-    }
-
-    // Auto-stop demo
-    if (_demoSequenceActive) {
-        RuntimeConfig& config = RuntimeConfig::getInstance();
-        config.stopDemo();
-        _demoActive = false;
-        _demoSequenceActive = false;
-        logDemoEvent("voice", "Voice control demo completed automatically");
-    }
+    _testState.motorTestActive = false;
+    logEvent("motor", "Motor ramp test completed", "COMPLETED", 0);
 }
 
-void WebServer::logDemoEvent(String event, String description) {
-    String upperEvent = event;
-    upperEvent.toUpperCase();
-    Serial.print("DEMO LOG: [");
-    Serial.print(upperEvent);
-    Serial.print("] ");
-    Serial.println(description);
+// Get motor position - MISSING IMPLEMENTATION
+void WebServer::getMotorPosition(WiFiClient& client) {
+    String response = "{";
+    response += "\"leftPosition\":" + String(_testState.leftMotorPosition) + ",";
+    response += "\"rightPosition\":" + String(_testState.rightMotorPosition);
+    response += "}";
 
-    // Could also log to safety event system if desired
-    logSafetyEvent("demo_" + event, description, "INFO", 0);
+    sendJsonResponse(client, response);
 }
 
+// Test motor direction - MISSING IMPLEMENTATION
+void WebServer::testMotorDirection(WiFiClient& client, String params) {
+    String motor = "left";
+    String direction = "forward";
 
-String WebServer::getSystemStatus() {
-    return String(_stateMachine->getStateString());
+    if (params.indexOf("motor=right") > 0) motor = "right";
+    if (params.indexOf("direction=reverse") > 0) direction = "reverse";
+
+    _testState.motorTestActive = true;
+    _testState.currentMotorTest = motor + "_direction_" + direction;
+    _testState.motorTestStartTime = millis();
+
+    String response = "{\"status\":\"testing\",\"motor\":\"" + motor + "\",\"direction\":\"" + direction + "\"}";
+    sendJsonResponse(client, response);
+
+    logEvent("motor", motor + " motor direction test: " + direction, "STARTED", 0);
+
+    // Simulate direction test
+    delay(2000);
+
+    _testState.motorTestActive = false;
+    logEvent("motor", motor + " motor direction test completed", "COMPLETED", 0);
 }
 
-String WebServer::getCurrentDateTime() {
-    return String(millis() / 1000);
+// Check motor test safety - MISSING IMPLEMENTATION
+bool WebServer::checkMotorTestSafety() {
+    // Check if it's safe to run motor tests
+    if (!_testState.motorTestSafetyCheck) return false;
+
+    // Check user presence
+    if (!_safetyMonitor->isUserPresent()) {
+        logEvent("motor", "Motor test safety check failed - no user present", "FAILED", 0);
+        return false;
+    }
+
+    // Check for obstacles
+    float frontDist = _safetyMonitor->getFrontDistance();
+    float rearDist = _safetyMonitor->getRearDistance();
+
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    if (frontDist < config.getFrontCriticalDistance() || rearDist < config.getRearCriticalDistance()) {
+        logEvent("motor", "Motor test safety check failed - obstacles detected", "FAILED", 0);
+        return false;
+    }
+
+    return true;
 }
+

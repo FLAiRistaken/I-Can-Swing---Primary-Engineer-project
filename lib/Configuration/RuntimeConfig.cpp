@@ -117,6 +117,17 @@ bool RuntimeConfig::validate() const {
             _settings.pressureThreshold < 900);
 }
 
+float RuntimeConfig::getSensorBaseline(const String& sensor) const {
+    if (sensor == "front") {
+        return _settings.frontSensorBaseline;
+    } else if (sensor == "rear") {
+        return _settings.rearSensorBaseline;
+    } else if (sensor == "pressure") {
+        return _settings.pressureBaseline;
+    }
+    return 0.0f; // Default fallback
+}
+
 // Simple setters with validation
 // REPLACE the existing setWarningDistance method with this:
 bool RuntimeConfig::setWarningDistance(float value) {

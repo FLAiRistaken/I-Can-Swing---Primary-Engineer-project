@@ -8,14 +8,11 @@
 #include "StepperDriver.h"
 #include "RuntimeConfig.h"
 
-
 class WebServer {
 public:
     WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor);
-    void exportConfiguration(WiFiClient& client);
-
     void setStepperDrivers(StepperDriver* leftStepper, StepperDriver* rightStepper);
-
+    void setDoorActuator(ActuatorDriver* doorActuator);
     void begin(int port = 80);
     void handleClient();
 
@@ -23,131 +20,79 @@ private:
     WiFiServer _server;
     StateMachine* _stateMachine;
     SafetyMonitor* _safetyMonitor;
-
-    // Calibration state tracking
-    bool _calibrationActive;
-    unsigned long _calibrationStartTime;
-    int _calibrationStep;
-    String _currentSensorCalibrating;
-
-    // Motor testing components
     StepperDriver* _leftStepper;
     StepperDriver* _rightStepper;
+    ActuatorDriver* _doorActuator;
 
-    // Motor testing state tracking
-    bool _motorTestActive;
-    String _currentMotorTest;
-    unsigned long _motorTestStartTime;
-    int _motorTestStep;
-    int _leftMotorPosition;
-    int _rightMotorPosition;
-    bool _motorTestSafetyCheck;
+    // ✅ CONSOLIDATED: Single test state structure instead of multiple separate ones
+    struct TestState {
 
-    // Test parameters
-    struct MotorTestParams {
-        uint16_t minSpeed;
-        uint16_t maxSpeed;
-        uint16_t rampIncrement;
-        unsigned long rampInterval;
-        int testSteps;
-        bool testDirection;
-    } _testParams;
+        // Motor testing state
+        bool motorTestActive;
+        String currentMotorTest;
+        unsigned long motorTestStartTime;
+        int motorTestStep;
+        int leftMotorPosition;
+        int rightMotorPosition;
+        bool motorTestSafetyCheck;
 
-    // Safety testing state tracking
-    bool _safetyTestActive;
-    String _currentSafetyTest;
-    unsigned long _safetyTestStartTime;
-    unsigned long _safetyTestEndTime;
-    int _safetyTestStep;
-    float _safetyTestThreshold;
-    bool _safetyOverrideEnabled;
-    unsigned long _safetyOverrideTimeout;
+        // Demo state
+        bool demoActive;
+        String currentDemo;
+        unsigned long demoStartTime;
+        int demoStep;
+        unsigned long demoStepStartTime;
+        bool demoSequenceActive;
+    } _testState;
 
-    // Safety test logs
-    struct SafetyEventLog {
+    // ✅ SIMPLIFIED: Single log structure for all events
+    struct LogEntry {
         unsigned long timestamp;
         String eventType;
         String description;
         String status;
         unsigned long responseTime;
     };
-    static const uint8_t MAX_SAFETY_LOGS = 20;
-    SafetyEventLog _safetyEventLogs[MAX_SAFETY_LOGS];
-    uint8_t _safetyLogIndex;
+    static const uint8_t MAX_LOGS = 15; // Reduced from 20
+    LogEntry _logs[MAX_LOGS];
+    uint8_t _logIndex;
 
-    // Safety testing methods
-    void handleSafetyTestAPI(WiFiClient& client, String command);
-    void triggerSafetyEvent(WiFiClient& client, String params);
-    void runThresholdTest(WiFiClient& client, String params);
-    void measureResponseTime(WiFiClient& client, String params);
-    void runAutomatedTestSequence(WiFiClient& client);
-    void getSafetyTestStatus(WiFiClient& client);
-    void getSafetyEventLogs(WiFiClient& client);
-    void toggleSafetyOverride(WiFiClient& client, bool enable);
-    void resetSafetyLogs(WiFiClient& client);
-    void sendSafetyTestPage(WiFiClient& client);
-
-    // Safety simulation methods
-    bool simulateObstacle(float distance, String sensor);
-    bool simulateUserDeparture();
-    bool simulateMotorStall();
-
-    // Logging methods
-    void logSafetyEvent(String eventType, String description, String status, unsigned long responseTime);
-    String generateSafetyTestHTML();
-
-    // Demo system state tracking
-    bool _demoActive;
-    RuntimeConfig::DemoMode _currentDemo;
-    unsigned long _demoStartTime;
-    int _demoStep;
-    unsigned long _demoStepStartTime;
-    bool _demoSequenceActive;
-
-    // Demo management methods
-    void handleDemoAPI(WiFiClient& client, String command);
-    void startDemo(WiFiClient& client, String params);
-    void stopDemo(WiFiClient& client);
-    void getDemoStatus(WiFiClient& client);
-    void runDemoSequence(RuntimeConfig::DemoMode mode);
-    void sendDemoPage(WiFiClient& client);
-
-    // Demo sequence implementations
-    void runGentleDemo();
-    void runFullFeatureDemo();
-    void runSafetyDemo();
-    void runVoiceControlDemo();
-
-    // Demo utilities
-    String generateDemoHTML();
-    void logDemoEvent(String event, String description);
-
-
-    // Page handlers
+    // ✅ STREAMLINED: Core page methods with efficient templates
+    void sendPageTemplate(WiFiClient& client, const __FlashStringHelper* title,
+                         const __FlashStringHelper* icon, void (WebServer::*contentMethod)(WiFiClient&));
     void sendHomePage(WiFiClient& client);
     void sendControlPage(WiFiClient& client);
-    void sendStatusPage(WiFiClient& client);
     void sendConfigPage(WiFiClient& client);
-    void sendDebugPage(WiFiClient& client);
-    void sendCalibrationPage(WiFiClient& client);
     void sendMotorTestPage(WiFiClient& client);
+    void sendDemoPage(WiFiClient& client);
     void send404Page(WiFiClient& client);
 
-    // API handlers
-    void handleControlCommand(WiFiClient& client, String command);
-    void handleConfigUpdate(WiFiClient& client, String params);
-    void handleCalibrationAPI(WiFiClient& client, String command);
+    // ✅ EFFICIENT: Content methods for template system
+    void sendHomeContent(WiFiClient& client);
+    void sendControlContent(WiFiClient& client);
+    void sendConfigContent(WiFiClient& client);
+    void sendMotorTestContent(WiFiClient& client);
+    void sendDemoContent(WiFiClient& client);
+
+    // ✅ CONSOLIDATED: API handlers
+    void handleAPI(WiFiClient& client, String endpoint, String params);
     void handleMotorTestAPI(WiFiClient& client, String command);
+    void handleDemoAPI(WiFiClient& client, String command);
+    void handleConfigUpdate(WiFiClient& client, String params);
+    void handleControlCommand(WiFiClient& client, String command);
 
-    // Calibration methods
-    void startCalibration(WiFiClient& client, String sensorType);
-    void saveCalibration(WiFiClient& client);
-    void resetCalibration(WiFiClient& client);
-    void getCalibrationStatus(WiFiClient& client);
-    void updateThreshold(WiFiClient& client, String params);
-    void getCalibrationData(WiFiClient& client);
+    // ✅ MEMORY EFFICIENT: Direct streaming methods
+    void sendUnifiedCSS(WiFiClient& client);
+    void sendUnifiedJS(WiFiClient& client);
+    void sendNavigation(WiFiClient& client);
+    void sendCard(WiFiClient& client, const __FlashStringHelper* title, const __FlashStringHelper* icon);
+    void sendCardEnd(WiFiClient& client);
+    void sendButton(WiFiClient& client, const __FlashStringHelper* text, const char* url, const char* type = "primary");
+    void sendFormField(WiFiClient& client, const char* type, const char* name, const char* label, const char* value = "");
+    void sendStatusItem(WiFiClient& client, const __FlashStringHelper* label, const __FlashStringHelper* value, const char* statusClass = "");
+    void sendStatusItem(WiFiClient& client, const __FlashStringHelper* label, const String& value, const char* statusClass = "");
 
-    // Motor testing methods
+    // ✅ PRESERVED: All motor testing functionality
     void testMotorLeft(WiFiClient& client, String params);
     void testMotorRight(WiFiClient& client, String params);
     void startRampTest(WiFiClient& client, String params);
@@ -156,16 +101,24 @@ private:
     void testMotorSync(WiFiClient& client);
     void stopMotorTest(WiFiClient& client);
     void getMotorTestStatus(WiFiClient& client);
-
-    // Safety interlocks
     bool checkMotorTestSafety();
     void resetMotorPositions();
 
-    // Utility functions
+    // ✅ PRESERVED: Demo functionality
+    void startDemo(WiFiClient& client, String params);
+    void stopDemo(WiFiClient& client);
+    void getDemoStatus(WiFiClient& client);
+    void runDemoSequence(String mode);
+    void runGentleDemo();
+    void runFullFeatureDemo();
+    void runSafetyDemo();
+
+    // ✅ ESSENTIAL: Utility methods
     void sendHttpHeader(WiFiClient& client, const char* contentType = "text/html");
-    void sendJsonResponse(WiFiClient& client, String jsonData);
-    String getSystemStatus();
+    void sendJsonResponse(WiFiClient& client, const __FlashStringHelper* json);
+    void sendJsonResponse(WiFiClient& client, const String& json);
+    void logEvent(const String& eventType, const String& description, const String& status, unsigned long responseTime = 0);
+    void exportConfiguration(WiFiClient& client);
     String getCurrentDateTime();
-    String generateCalibrationWizardHTML();
-    String generateMotorTestHTML();
+    String getSystemStatus();
 };
