@@ -27,15 +27,15 @@ constexpr uint8_t PIN_ACTUATOR_FWD = 7;
 constexpr uint8_t PIN_ACTUATOR_REV = 8;
 
 // ---- Buttons (use available digital & analog pins as digital) ----
-constexpr uint8_t PIN_BTN_START      = A0;   // D12
-constexpr uint8_t PIN_BTN_STOP       = A1;   // D13 (also LED_BUILTIN, avoid using LED at same time)
-constexpr uint8_t PIN_BTN_SPEED_UP   = A2;   // D14
-constexpr uint8_t PIN_BTN_SPEED_DOWN = A3;   // D15
-constexpr uint8_t PIN_BTN_DOOR       = A4;   // D16
+constexpr uint8_t PIN_BTN_START      = 0;   // D12
+constexpr uint8_t PIN_BTN_STOP       = 0;   // D13 (also LED_BUILTIN, avoid using LED at same time)
+constexpr uint8_t PIN_BTN_SPEED_UP   = 0;   // D14
+constexpr uint8_t PIN_BTN_SPEED_DOWN = 0;   // D15
+constexpr uint8_t PIN_BTN_DOOR       = 0;   // D16
 
 // ---- Sensors ----
 // Pressure sensor (analog only)
-constexpr uint8_t PIN_PRESSURE_SENSOR = A3;  // Analog input
+constexpr uint8_t PIN_PRESSURE_SENSOR = A0;  // Analog input
 
 // Ultrasonic Sensor 1 (front, use available digital pins)
 constexpr uint8_t PIN_ULTRASONIC1_TRIG = 10;  // Already used for stepper1 enable, if conflict, move to another unused pin
@@ -46,8 +46,12 @@ constexpr uint8_t PIN_ULTRASONIC2_TRIG = 12;
 constexpr uint8_t PIN_ULTRASONIC2_ECHO = 13;
 
 // ---- I2C Display ----
-constexpr uint8_t PIN_DISPLAY_SDA = A5; // Reserved for I2C
-constexpr uint8_t PIN_DISPLAY_SCL = A4; // Reserved for I2C
+//constexpr uint8_t PIN_DISPLAY_SDA = A5; // Reserved for I2C
+//constexpr uint8_t PIN_DISPLAY_SCL = A4; // Reserved for I2C
+
+// ---- I2C Expansion ----
+constexpr uint8_t PIN_I2C_SDA = A4;
+constexpr uint8_t PIN_I2C_SCL = A5;
 
 // ---- Voice Recognition Module (SoftwareSerial, pick any free digital pins except D0/D1, A4/A5) ----
 constexpr uint8_t PIN_VOICE_RX = 8;  // Example: D8 (if not used elsewhere)
@@ -59,7 +63,6 @@ constexpr uint8_t PIN_VOICE_TX = 7;  // Example: D7 (if not used elsewhere)
 constexpr uint16_t SPEED_LOW    = 300;
 constexpr uint16_t SPEED_MEDIUM = 500;
 constexpr uint16_t SPEED_HIGH   = 700;
-
 constexpr unsigned long DOOR_OPEN_TIME_MS   = 5000;
 constexpr unsigned long BUTTON_DEBOUNCE_MS  = 50;
 constexpr unsigned long DISPLAY_UPDATE_MS   = 1000;
@@ -69,4 +72,8 @@ constexpr unsigned long SENSOR_CHECK_MS     = 100;
 constexpr int PRESSURE_THRESHOLD    = 500; // Analog threshold for occupancy
 constexpr int OBSTACLE_DISTANCE_CM  = 30;  // Default ultrasonic warning threshold
 constexpr int CRITICAL_DISTANCE_CM  = 10;  // Emergency stop threshold
+
+// ---- WiFi Credentials ----
+constexpr char WIFI_SSID[] = "JahPhone";
+constexpr char WIFI_PASSWORD[] = "password";
 

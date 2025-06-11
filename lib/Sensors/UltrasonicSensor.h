@@ -26,7 +26,7 @@ private:
     const char* _name;
 
     volatile unsigned long _startTime;
-    volatile unsigned long _echoTime;
+    volatile unsigned long _echoPulseStartTime;
     volatile bool _measuring;
     float _lastDistance;
 

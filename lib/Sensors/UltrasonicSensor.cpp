@@ -3,7 +3,7 @@
 
 UltrasonicSensor::UltrasonicSensor(uint8_t trigPin, uint8_t echoPin, const char* name)
     : _trigPin(trigPin), _echoPin(echoPin), _name(name),
-      _startTime(0), _echoTime(0), _measuring(false), _lastDistance(0.0) {}
+      _startTime(0), _echoPulseStartTime(0), _measuring(false), _lastDistance(500.00) {}
 
 void UltrasonicSensor::begin() {
     pinMode(_trigPin, OUTPUT);
@@ -46,6 +46,7 @@ void UltrasonicSensor::startMeasurement() {
     digitalWrite(_trigPin, LOW);
 
     _startTime = micros();
+    _echoPulseStartTime = 0;
     _measuring = true;
 }
 
@@ -54,29 +55,34 @@ bool UltrasonicSensor::isMeasurementComplete() {
         return true; // No measurement in progress
     }
 
-    // Check if echo pin is HIGH
-    if (digitalRead(_echoPin) == HIGH) {
-        // Still waiting for echo
-        if (micros() - _startTime > MEASUREMENT_TIMEOUT) {
-            // Timeout - no object detected
-            _measuring = false;
-            _lastDistance = -1.0; // Invalid distance
-            return true;
-        }
-        return false; // Still measuring
-    } else {
-        // Echo received or never started
-        if (_echoTime == 0) {
-            // Echo never started or already ended
-            _measuring = false;
-            return true;
-        }
-
-        // Calculate duration and distance
-        unsigned long duration = _echoTime - _startTime;
-        _lastDistance = (duration * 0.034) / 2.0;
+    // First, check for a total timeout since the trigger pulse was sent.
+    if (micros() - _startTime > MEASUREMENT_TIMEOUT) {
         _measuring = false;
+        _lastDistance = 500.0; // Set to a safe, high value indicating no obstacle.
         return true;
+    }
+
+    // If the echo pin is HIGH, it means the pulse is traveling back to us.
+    if (digitalRead(_echoPin) == HIGH) {
+        // If this is the first time we see the HIGH signal, record the start time.
+        if (_echoPulseStartTime == 0) {
+            _echoPulseStartTime = micros();
+        }
+        // Measurement is not yet complete.
+        return false;
+    }
+    // If the echo pin is LOW...
+    else {
+        // ...and we have previously recorded the start of the pulse, it means the pulse has just ended.
+        if (_echoPulseStartTime > 0) {
+            unsigned long duration = micros() - _echoPulseStartTime;
+            _lastDistance = (duration * 0.034) / 2.0;
+            _measuring = false;
+            return true; // Measurement is complete!
+        }
+        // If we are here, it means the pin is LOW and we are still waiting for the pulse to start.
+        // So, measurement is not yet complete.
+        return false;
     }
 }
 

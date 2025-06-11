@@ -1,5 +1,6 @@
 // ButtonManager.cpp
 #include "ButtonManager.h"
+#include "Configuration.h"
 
 volatile bool ButtonManager::_emergencyStop = false;
 
@@ -13,16 +14,19 @@ void ButtonManager::begin() {
         Serial.print(_pins[i]);
         Serial.println(" set as INPUT_PULLUP");
     }
+    // synchronises the software state with the physical hardware state.
+    Serial.println("ButtonManager: Synchronizing initial button states...");
+    for (int i = 0; i < BTN_COUNT; i++) {
+        bool initialState = !digitalRead(_pins[i]); // Read the physical state
+        _currentState[i] = initialState;
+        _lastState[i] = initialState;
+    }
     // Emergency stop pin setup
     pinMode(PIN_EMERGENCY_STOP, INPUT_PULLUP);
     Serial.println("ButtonManager: Emergency stop pin set as INPUT_PULLUP");
-    // Attach interrupt only if pin supports it
-    if (digitalPinToInterrupt(PIN_EMERGENCY_STOP) != 2 || digitalPinToInterrupt(PIN_EMERGENCY_STOP) != 3) {
-        attachInterrupt(digitalPinToInterrupt(PIN_EMERGENCY_STOP), emergencyStopISR, FALLING);
-        Serial.println("ButtonManager: Emergency stop interrupt attached");
-    } else {
-        Serial.println("ButtonManager: WARNING - Emergency stop pin is not interrupt-capable");
-    }
+    // Attach interrupt pin
+    attachInterrupt(digitalPinToInterrupt(PIN_EMERGENCY_STOP), emergencyStopISR, FALLING);
+    Serial.println("ButtonManager: Emergency stop interrupt attached");
     Serial.println("ButtonManager: Initialization complete");
 }
 
@@ -67,9 +71,11 @@ bool ButtonManager::isPressed(Button button) {
 
 bool ButtonManager::wasPressed(Button button) {
     if (button == BTN_EMERGENCY) {
-        bool temp = _emergencyStop;
-        _emergencyStop = false;
-        return temp;
+        if (_emergencyStop) {
+            _emergencyStop = false;
+            return true;
+        }
+        return false;
     }
 
     if (_pressedFlag[button]) {

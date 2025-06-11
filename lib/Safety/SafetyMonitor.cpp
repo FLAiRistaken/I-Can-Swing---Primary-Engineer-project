@@ -1,5 +1,11 @@
 // lib/Safety/SafetyMonitor.cpp
 #include "SafetyMonitor.h"
+#include <RuntimeConfig.h>
+
+void onConfigChange(const char* key) {
+    Serial.print("SafetyMonitor: Config changed - ");
+    Serial.println(key);
+}
 
 SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
                            UltrasonicSensor* frontSensor,
@@ -28,6 +34,10 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
 
 void SafetyMonitor::begin() {
     Serial.println("SafetyMonitor: Initialized");
+
+    // Register callback for config changes
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    config.registerCallback(onConfigChange);
 
     // Initialize watchdog timer
     _lastWatchdogReset = millis();
@@ -81,9 +91,12 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
     // Record the current obstacle detection
     unsigned long currentTime = millis();
 
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+
     // Check if distance crosses the warning threshold
-    bool obstacleDetected = (_frontDistance > 0 && _frontDistance < WARNING_DISTANCE_CM) ||
-                            (_rearDistance > 0 && _rearDistance < WARNING_DISTANCE_CM);
+    bool obstacleDetected = (_frontDistance > 0 && _frontDistance < config.getFrontWarningDistance()) ||
+                            (_rearDistance > 0 && _rearDistance < config.getRearWarningDistance());
 
     // Only record changes in obstacle status
     static bool lastObstacleStatus = false;
@@ -114,10 +127,25 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
 }
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
-    // Get distance readings
-    _frontDistance = _frontSensor->measureDistance();
-    delay(10);
-    _rearDistance = _rearSensor->measureDistance();
+    // Use simulated values if in test mode
+    if (_testModeEnabled) {
+        if (_simulatedFrontDistance > 0) {
+            _frontDistance = _simulatedFrontDistance;
+        } else {
+            _frontDistance = _frontSensor->measureDistance();
+        }
+
+        if (_simulatedRearDistance > 0) {
+            _rearDistance = _simulatedRearDistance;
+        } else {
+            _rearDistance = _rearSensor->measureDistance();
+        }
+    } else {
+        // Normal operation
+        _frontDistance = _frontSensor->measureDistance();
+        delay(10);
+        _rearDistance = _rearSensor->measureDistance();
+    }
 
     // Store previous readings for phase detection
     static float lastFrontDistance = _frontDistance;
@@ -161,13 +189,6 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     // Get dynamic thresholds based on current state
     float effectiveCritical = getEffectiveCriticalDistance();
     float effectiveWarning = getEffectiveWarningDistance();
-
-    Serial.print("_frontDistance: ");
-    Serial.print(_frontDistance);
-    Serial.println(" cm");
-    Serial.print("_rearDistance: ");
-    Serial.print(_rearDistance);
-    Serial.println(" cm");
 
     // Check for critical proximity using dynamic threshold
     if ((_frontDistance > 0 && _frontDistance < effectiveCritical) ||
@@ -219,26 +240,34 @@ bool SafetyMonitor::isReadingExpectedGround(float distance, float previousDistan
 }
 
 float SafetyMonitor::getEffectiveWarningDistance() const {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    float baseDistance = config.getFrontWarningDistance();
     // When swinging, use a smaller threshold to account for ground detection
     if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
         // Reduce warning threshold by 30% during swinging
-        return WARNING_DISTANCE_CM * 0.7f;
+        return baseDistance * 0.7f;
     }
-    return WARNING_DISTANCE_CM;
+    return baseDistance;
 }
 
 float SafetyMonitor::getEffectiveCriticalDistance() const {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    float baseDistance = config.getFrontCriticalDistance();
     // Critical distance is less affected but still adjustable
     if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
         // Reduce critical threshold by 10% during swinging
-        return CRITICAL_DISTANCE_CM * 0.9f;
+        return baseDistance * 0.9f;
     }
-    return CRITICAL_DISTANCE_CM;
+    return baseDistance;
 }
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkUserPresence() {
     // Check if user is present in the swing
-    _userPresent = _pressureSensor->isOccupied();
+    if (_testModeEnabled) {
+        _userPresent = _simulatedUserPresent;
+    } else {
+        _userPresent = _pressureSensor->isOccupied();
+    }
 
     // If swinging and user suddenly disappears, trigger emergency
     if (!_userPresent &&
@@ -343,6 +372,212 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkMotorOperation() {
     }
 
     return STATUS_OK;
+}
+
+// Calibration
+void SafetyMonitor::enterCalibrationMode(String sensorType) {
+    _calibrationMode = true;
+    _calibratingsensor = sensorType;
+    _calibrationIndex = 0;
+    _lastCalibrationReading = millis();
+
+    // Initialize calibration data
+    _currentCalibration = {0, 999999, -999999, 0, 0, false};
+
+    Serial.print("Entering calibration mode for: ");
+    Serial.println(sensorType);
+}
+
+void SafetyMonitor::exitCalibrationMode() {
+    _calibrationMode = false;
+    _calibratingsensor = "";
+    Serial.println("Exiting calibration mode");
+}
+
+CalibrationData SafetyMonitor::getCurrentCalibrationData() {
+    if (!_calibrationMode) {
+        return {0, 0, 0, 0, 0, false};
+    }
+
+    // Update calibration readings if in calibration mode
+    unsigned long currentTime = millis();
+    if (currentTime - _lastCalibrationReading >= 100 && _calibrationIndex < 100) {
+        float reading = 0;
+
+        if (_calibratingsensor == "ultrasonic1") {
+            reading = _frontSensor->measureDistance();
+        } else if (_calibratingsensor == "ultrasonic2") {
+            reading = _rearSensor->measureDistance();
+        } else if (_calibratingsensor == "pressure") {
+            reading = _pressureSensor->readRawValue();
+        }
+
+        if (reading > 0) {  // Valid reading
+            _calibrationReadings[_calibrationIndex] = reading;
+            _calibrationIndex++;
+
+            // Update min/max
+            if (reading < _currentCalibration.minValue) {
+                _currentCalibration.minValue = reading;
+            }
+            if (reading > _currentCalibration.maxValue) {
+                _currentCalibration.maxValue = reading;
+            }
+
+            // Calculate average
+            float sum = 0;
+            for (int i = 0; i < _calibrationIndex; i++) {
+                sum += _calibrationReadings[i];
+            }
+            _currentCalibration.average = sum / _calibrationIndex;
+            _currentCalibration.readingCount = _calibrationIndex;
+
+            _lastCalibrationReading = currentTime;
+        }
+    }
+
+    return _currentCalibration;
+}
+
+bool SafetyMonitor::saveCalibrationData() {
+    if (!_calibrationMode || _calibrationIndex < 50) {
+        return false;  // Need at least 50 readings
+    }
+
+    // Calculate final baseline
+    float baseline = _currentCalibration.average;
+
+    // Save to appropriate sensor configuration
+    if (_calibratingsensor == "ultrasonic1") {
+        _ultrasonic1Baseline = baseline;
+        _ultrasonic1MinThreshold = _currentCalibration.minValue * 0.9f;  // 10% margin
+        _ultrasonic1MaxThreshold = _currentCalibration.maxValue * 1.1f;
+    } else if (_calibratingsensor == "ultrasonic2") {
+        _ultrasonic2Baseline = baseline;
+        _ultrasonic2MinThreshold = _currentCalibration.minValue * 0.9f;
+        _ultrasonic2MaxThreshold = _currentCalibration.maxValue * 1.1f;
+    } else if (_calibratingsensor == "pressure") {
+        _pressureBaseline = baseline;
+        _pressureThreshold = (int)(baseline * 1.2f);  // 20% above baseline for detection
+    }
+
+    Serial.print("Calibration saved for ");
+    Serial.print(_calibratingsensor);
+    Serial.print(" - Baseline: ");
+    Serial.println(baseline);
+
+    return true;
+}
+
+void SafetyMonitor::resetCalibrationData() {
+    // Reset to factory defaults
+    _ultrasonic1MinThreshold = 5.0f;
+    _ultrasonic1MaxThreshold = 400.0f;
+    _ultrasonic1Baseline = 200.0f;
+
+    _ultrasonic2MinThreshold = 5.0f;
+    _ultrasonic2MaxThreshold = 400.0f;
+    _ultrasonic2Baseline = 200.0f;
+
+    _pressureThreshold = PRESSURE_THRESHOLD;
+    _pressureBaseline = 100.0f;
+
+    Serial.println("Calibration data reset to factory defaults");
+}
+
+bool SafetyMonitor::updateSensorThresholds(String sensor, float minVal, float maxVal) {
+    if (sensor == "ultrasonic1") {
+        _ultrasonic1MinThreshold = minVal;
+        _ultrasonic1MaxThreshold = maxVal;
+        return true;
+    } else if (sensor == "ultrasonic2") {
+        _ultrasonic2MinThreshold = minVal;
+        _ultrasonic2MaxThreshold = maxVal;
+        return true;
+    } else if (sensor == "pressure") {
+        _pressureThreshold = (int)maxVal;
+        return true;
+    }
+    return false;
+}
+
+// Test mode methods implementation
+
+void SafetyMonitor::simulateObstacleDetection(String sensor, float distance) {
+    if (!_testModeEnabled) {
+        Serial.println("SafetyMonitor: Test mode not enabled - cannot simulate obstacle");
+        return;
+    }
+
+    if (sensor == "front") {
+        _simulatedFrontDistance = distance;
+        Serial.print("SafetyMonitor: Simulating front obstacle at ");
+        Serial.print(distance);
+        Serial.println(" cm");
+    } else if (sensor == "rear") {
+        _simulatedRearDistance = distance;
+        Serial.print("SafetyMonitor: Simulating rear obstacle at ");
+        Serial.print(distance);
+        Serial.println(" cm");
+    }
+}
+
+void SafetyMonitor::simulateUserDeparture() {
+    if (!_testModeEnabled) {
+        Serial.println("SafetyMonitor: Test mode not enabled - cannot simulate user departure");
+        return;
+    }
+
+    _simulatedUserPresent = false;
+    Serial.println("SafetyMonitor: Simulating user departure");
+}
+
+void SafetyMonitor::simulateMotorStall() {
+    if (!_testModeEnabled) {
+        Serial.println("SafetyMonitor: Test mode not enabled - cannot simulate motor stall");
+        return;
+    }
+
+    _stallCount = _maxStallCount;
+    Serial.println("SafetyMonitor: Simulating motor stall condition");
+}
+
+bool SafetyMonitor::isInTestMode() const {
+    return _testModeEnabled;
+}
+
+void SafetyMonitor::enterTestMode() {
+    _testModeEnabled = true;
+    _simulatedFrontDistance = 0.0f;
+    _simulatedRearDistance = 0.0f;
+    _simulatedUserPresent = true;
+    Serial.println("SafetyMonitor: Entered test mode");
+}
+
+void SafetyMonitor::exitTestMode() {
+    _testModeEnabled = false;
+    Serial.println("SafetyMonitor: Exited test mode");
+}
+
+// Getter methods
+float SafetyMonitor::getUltrasonicMinThreshold(int sensor) {
+    return (sensor == 1) ? _ultrasonic1MinThreshold : _ultrasonic2MinThreshold;
+}
+
+float SafetyMonitor::getUltrasonicMaxThreshold(int sensor) {
+    return (sensor == 1) ? _ultrasonic1MaxThreshold : _ultrasonic2MaxThreshold;
+}
+
+float SafetyMonitor::getUltrasonicBaseline(int sensor) {
+    return (sensor == 1) ? _ultrasonic1Baseline : _ultrasonic2Baseline;
+}
+
+int SafetyMonitor::getPressureThreshold() {
+    return _pressureThreshold;
+}
+
+float SafetyMonitor::getPressureBaseline() {
+    return _pressureBaseline;
 }
 
 

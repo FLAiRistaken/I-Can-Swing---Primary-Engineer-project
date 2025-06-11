@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include "Configuration.h"
+#include "RuntimeConfig.h"
 #include "BuzzerDriver.h"
-#include "DisplayDriver.h"
 #include "ButtonManager.h"
 #include "StateMachine.h"
 #include "StepperDriver.h"
@@ -11,10 +11,11 @@
 #include "ActuatorDriver.h"
 #include "SafetyMonitor.h"
 #include "VoiceRecognition.h"
+#include "WiFiManager.h"
+#include "WebServer.h"
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
-DisplayDriver display;
 ButtonManager buttons;
 StateMachine stateMachine;
 // Create stepper motor drivers
@@ -30,37 +31,15 @@ VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 // Create SafetyMonitor instance
 SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
 
+WiFiManager wifiManager;
+WebServer webServer(&stateMachine, &safetyMonitor);
+
 // UsS Distance values
 float frontDistance = 0.0;
 float rearDistance = 0.0;
 
 // Timing variables
-unsigned long lastDisplayUpdate = 0;
 unsigned long lastSensorCheck = 0;
-
-
-void updateDisplay() {
-    display.clear();
-
-    // Show state and speed on display
-    char statusLine[32];
-    sprintf(statusLine, "Status: %s", stateMachine.getStateString());
-    display.drawText(0, 0, statusLine);
-
-    char speedLine[32];
-    sprintf(speedLine, "Speed: %s", stateMachine.getSpeedString());
-    display.drawText(0, 16, speedLine);
-
-    // Show ultrasonic sensor values and safety status
-    char distanceLine[32];
-    sprintf(distanceLine, "F:%0.1f R:%0.1f %s",
-            safetyMonitor.getFrontDistance(),
-            safetyMonitor.getRearDistance(),
-            safetyMonitor.getStatusString());
-    display.drawText(0, 32, distanceLine);
-
-    display.display();
-}
 
 
 void handleButtons() {
@@ -68,6 +47,7 @@ void handleButtons() {
 
     // Map button presses to state machine events
     if (buttons.wasPressed(ButtonManager::BTN_START)) {
+        Serial.println("DEBUG: Start pressed");
         stateMachine.processEvent(StateMachine::EVENT_START_PRESSED);
     }
 
@@ -102,24 +82,20 @@ void handleButtons() {
     // Handle emergency reset
     static unsigned long emergencyResetStartTime = 0;
     if (stateMachine.getCurrentState() == StateMachine::STATE_EMERGENCY) {
-        // First check that physical button has been reset (not pressed)
-        if (!digitalRead(PIN_EMERGENCY_STOP)) { // Assuming active LOW for emergency button
-            // Button has been physically reset, now check for software reset
+        if (digitalRead(PIN_EMERGENCY_STOP) == HIGH) { // Check if physical button is reset (not pressed due to INPUT_PULLUP)
             if (buttons.isPressed(ButtonManager::BTN_STOP)) {
                 if (emergencyResetStartTime == 0) {
-                    // Start timing when button first pressed
                     emergencyResetStartTime = millis();
-                    buzzer.beep(300, 100); // Feedback beep
+                    buzzer.beep(300, 100);
                 } else if (millis() - emergencyResetStartTime > 3000) {
-                    // Button held for 3+ seconds, trigger reset
                     stateMachine.processEvent(StateMachine::EVENT_EMERGENCY_RESET);
-                    buzzer.beep(700, 100); // Success indication
+                    buzzer.beep(700, 100);
                     delay(100);
                     buzzer.beep(1200, 100);
                     emergencyResetStartTime = 0;
                 }
             } else {
-                emergencyResetStartTime = 0; // Reset timer if button released
+                emergencyResetStartTime = 0;
             }
         }
     }
@@ -150,12 +126,13 @@ void checkUltrasonicSensors() {
     rearDistance = ultrasonicRear.measureDistance();
 
     // Define thresholds
-    const int CRITICAL_DISTANCE_CM = 10; // Very close - emergency
-    const int WARNING_DISTANCE_CM = OBSTACLE_DISTANCE_CM; // Normal obstacle - error
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    float criticalDistance = config.getFrontCriticalDistance(); // Very close - emergency
+    float warningDistance = config.getFrontWarningDistance(); // Normal obstacle - error
 
     // Check for critical proximity (EMERGENCY condition)
-    if ((frontDistance > 0 && frontDistance < CRITICAL_DISTANCE_CM) ||
-        (rearDistance > 0 && rearDistance < CRITICAL_DISTANCE_CM)) {
+    if ((frontDistance > 0 && frontDistance < criticalDistance) ||
+        (rearDistance > 0 && rearDistance < criticalDistance)) {
         // Immediate danger detected - trigger emergency
         stateMachine.processEvent(StateMachine::EVENT_EMERGENCY);
         buzzer.playTone(2000, 500); // Urgent alert sound
@@ -164,15 +141,15 @@ void checkUltrasonicSensors() {
     }
 
     // Check for obstacles (ERROR condition)
-    if ((frontDistance > CRITICAL_DISTANCE_CM && frontDistance < WARNING_DISTANCE_CM) ||
-        (rearDistance > CRITICAL_DISTANCE_CM && rearDistance < WARNING_DISTANCE_CM)) {
+    if ((frontDistance > criticalDistance && frontDistance < warningDistance) ||
+        (rearDistance > criticalDistance && rearDistance < warningDistance)) {
         // Obstacle detected - trigger error only if not already in error/emergency
         if (stateMachine.getCurrentState() != StateMachine::STATE_ERROR &&
             stateMachine.getCurrentState() != StateMachine::STATE_EMERGENCY) {
             stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
             buzzer.beep(1500, 100); // Alert sound
             Serial.print("WARNING: Object detected at ");
-            Serial.print((frontDistance < WARNING_DISTANCE_CM) ? frontDistance : rearDistance);
+            Serial.print((frontDistance < warningDistance) ? frontDistance : rearDistance);
             Serial.println(" cm");
         }
     }
@@ -181,17 +158,18 @@ void checkUltrasonicSensors() {
 void updateMotors() {
     // Set motor speeds based on current state and speed setting
     if (stateMachine.getCurrentState() == StateMachine::STATE_SWINGING) {
+        RuntimeConfig& config = RuntimeConfig::getInstance();
         uint16_t speedValue = 0;
 
         switch (stateMachine.getCurrentSpeed()) {
             case StateMachine::SPEED_LOW:
-                speedValue = SPEED_LOW;
+                speedValue = config.getSpeedLow();
                 break;
             case StateMachine::SPEED_MEDIUM:
-                speedValue = SPEED_MEDIUM;
+                speedValue = config.getSpeedMedium();
                 break;
             case StateMachine::SPEED_HIGH:
-                speedValue = SPEED_HIGH;
+                speedValue = config.getSpeedHigh();
                 break;
             default:
                 speedValue = 0;
@@ -241,16 +219,18 @@ void setup() {
 
     Wire.setClock(100000);
 
+    Serial.println("Initialising RuntimeConfig...");
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    config.begin();
+    Serial.println("RuntimeConfig initialised");
+
     // Initialise components
     Serial.println("Initialising buzzer...");
     buzzer.begin();
     Serial.println("Buzzer initialised");
-    Serial.println("Initialising display...");
-    display.begin();
-    Serial.println("Display initialised");
-    //Serial.println("Initialising buttons...");
-    //buttons.begin();
-    //Serial.println("Buttons initialised");
+    Serial.println("Initialising buttons...");
+    buttons.begin();
+    Serial.println("Buttons initialised");
     Serial.println("Initialising safetyMonitor...");
     safetyMonitor.begin();
     Serial.println("safetyMonitor initialised");
@@ -280,6 +260,14 @@ void setup() {
     Serial.println("Initialising voiceModule");
     voiceModule.begin();
     Serial.println("voiceModule initialised...");
+    Serial.println("Initialising WiFi...");
+    if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
+        Serial.println("WiFi connected successfully");
+        webServer.begin();
+        Serial.println("Web server started");
+    } else {
+        Serial.println("WiFi connection failed - continuing without web interface");
+    }
 
     // Set initial stepper directions (opposite for swing motion)
     stepperLeft.setDirection(true);   // Clockwise
@@ -287,48 +275,56 @@ void setup() {
 
     stateMachine.setBuzzer(&buzzer);
     stateMachine.setDoorActuator(&doorActuator);
-    stateMachine.setDoorTimeout(5000);
+    stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
 
     // Startup beep
     buzzer.beep(1000, 100);
     delay(100);
     buzzer.beep(1500, 100);
 
-    // Show startup message
-    display.showText("Swing Ready");
     delay(1000);
 }
 
 void loop() {
-    // Check for button presses
-    //handleButtons();
+    // Handle web server first
+    if (wifiManager.isConnected()) {
+        webServer.handleClient();
+    }
 
-    Serial.println("Loop...");
+    handleButtons();
 
-    // Timeout checking
+    // RuntimeConfig save
+    static unsigned long lastConfigCheck = 0;
+    if (millis() - lastConfigCheck > 30000) { // Every 30 seconds
+        RuntimeConfig::getInstance().save();
+        lastConfigCheck = millis();
+    }
+
+    // State machine and voice updates
     stateMachine.update();
-
     voiceModule.update();
 
-    // Check sensors at regular intervals
+    // Sensor checks
     unsigned long currentMillis = millis();
     if (currentMillis - lastSensorCheck >= SENSOR_CHECK_MS) {
         lastSensorCheck = currentMillis;
         Serial.println("Checking sensors");
         safetyMonitor.checkSafety();
         handleUserPresenceChanges();
+
+        // Sensor debug
+        Serial.print("Front: ");
+        Serial.print(safetyMonitor.getFrontDistance());
+        Serial.print(" cm, Rear: ");
+        Serial.print(safetyMonitor.getRearDistance());
+        Serial.println(" cm");
     }
 
-    // Update door actuator
+    // Update hardware
     doorActuator.update();
-
-    // Update motor control
     updateMotors();
 
-    // Update display at regular intervals
-    if (currentMillis - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {
-        lastDisplayUpdate = currentMillis;
-        Serial.println("Updating display");
-        updateDisplay();
-    }
+    // Small delay
+    delay(10);
 }
+
