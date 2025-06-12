@@ -3,6 +3,8 @@
 #include "Debug.h"
 #include "BuzzerDriver.h"
 #include "ActuatorDriver.h"
+#include "RuntimeConfig.h"
+#include "StepperDriver.h"
 
 StateMachine::StateMachine()
     : _currentState(STATE_IDLE),
@@ -10,6 +12,8 @@ StateMachine::StateMachine()
       _isUserPresent(false),
       _doorActuator(nullptr),
       _buzzer(nullptr),
+      _stepperLeft(nullptr),
+      _stepperRight(nullptr),
       _stateEntryTime(0),
       _doorTimeoutMs(10000),
       _timeoutEnabled(false)
@@ -213,6 +217,16 @@ void StateMachine::enterState(State state) {
         case STATE_SWINGING:
             Serial.print("StateMachine: Starting swing motion at speed: ");
             Serial.println(getSpeedString());
+            if (_stepperLeft && _stepperRight) {
+                RuntimeConfig& config = RuntimeConfig::getInstance();
+                uint16_t speedValue = config.getSpeedLow(); // Always start at low
+                _stepperLeft->setSpeed(speedValue);
+                _stepperRight->setSpeed(speedValue);
+                _stepperLeft->enable();
+                _stepperRight->enable();
+                _stepperLeft->startContinuous();
+                _stepperRight->startContinuous();
+            }
             // Audio feedback
             if (_buzzer) {
                 _buzzer->beep(1000, 100);
@@ -268,6 +282,12 @@ void StateMachine::enterState(State state) {
             break;
 
         case STATE_IDLE:
+            if (_stepperLeft && _stepperRight) {
+                _stepperLeft->stop();
+                _stepperRight->stop();
+                _stepperLeft->disable();
+                _stepperRight->disable();
+            }
             Serial.println("StateMachine: System is now idle");
             // Audio feedback - single beep
             if (_buzzer) {
@@ -283,6 +303,14 @@ void StateMachine::exitState(State state) {
     Serial.println(getStateString());
 
     switch (state) {
+        case STATE_SWINGING:
+            Serial.println("StateMachine: Exiting SWINGING state, ensuring motors are stopped.");
+            if (_stepperLeft && _stepperRight) {
+                _stepperLeft->stop();
+                _stepperRight->stop();
+            }
+            break;
+
         case STATE_DOOR_OPENING:
         case STATE_DOOR_CLOSING:
             // Stop door movement directly
@@ -339,6 +367,11 @@ void StateMachine::setBuzzer(BuzzerDriver* buzzer) {
 
 void StateMachine::setDoorActuator(ActuatorDriver* doorActuator) {
     _doorActuator = doorActuator;
+}
+
+void StateMachine::setSteppers(StepperDriver* left, StepperDriver* right) {
+    _stepperLeft = left;
+    _stepperRight = right;
 }
 
 StateMachine::State StateMachine::getCurrentState() const {

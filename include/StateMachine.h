@@ -6,6 +6,7 @@
 
 class ActuatorDriver;
 class BuzzerDriver;
+class StepperDriver;
 
 class StateMachine {
 public:
@@ -48,6 +49,7 @@ public:
     // Setters for _buzzer and _doorActuator
     void setBuzzer(BuzzerDriver* buzzer);
     void setDoorActuator(ActuatorDriver* doorActuator);
+    void setSteppers(StepperDriver* left, StepperDriver* right);
 
     // Timeout setting
     void setDoorTimeout(unsigned long timeoutMs);
@@ -73,6 +75,8 @@ private:
     Speed _currentSpeed;
     ActuatorDriver* _doorActuator;
     BuzzerDriver* _buzzer;
+    StepperDriver* _stepperLeft;
+    StepperDriver* _stepperRight;
     bool _isUserPresent; // Flag to track occupancy
     unsigned long _stateEntryTime;
     unsigned long _doorTimeoutMs;

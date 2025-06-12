@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "Configuration.h"
+#include "ExpanderManager.h"
 
 class ButtonManager {
 public:
@@ -16,7 +17,7 @@ public:
         BTN_COUNT  // Use to define array sizes
     };
 
-    ButtonManager();
+    ButtonManager(ExpanderManager* expander);
     void begin();
     void update();
 
@@ -27,6 +28,8 @@ public:
     static void emergencyStopISR();
 
 private:
+    ExpanderManager* _expander;
+
     uint8_t _pins[BTN_COUNT] = {
         PIN_BTN_START,      // 12
         PIN_BTN_STOP,       // 13

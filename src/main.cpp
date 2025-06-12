@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include "Configuration.h"
+#include "ExpanderManager.h"
 #include "RuntimeConfig.h"
 #include "BuzzerDriver.h"
 #include "ButtonManager.h"
@@ -16,7 +17,8 @@
 
 // Create component instances
 BuzzerDriver buzzer(PIN_BUZZER);
-ButtonManager buttons;
+ExpanderManager expander;
+ButtonManager buttons(&expander);
 StateMachine stateMachine;
 // Create stepper motor drivers
 StepperDriver stepperLeft(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
@@ -25,8 +27,8 @@ StepperDriver stepperRight(PIN_STEPPER2_IN1, PIN_STEPPER2_IN2, PIN_STEPPER2_IN3,
 UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
-ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine);
-VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
+ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine, &expander);
+//VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 
 // Create SafetyMonitor instance
 SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
@@ -37,6 +39,10 @@ WebServer webServer(&stateMachine, &safetyMonitor);
 // UsS Distance values
 float frontDistance = 0.0;
 float rearDistance = 0.0;
+
+// UsS state variables
+bool frontSensorMeasuring = false;
+bool rearSensorMeasuring = false;
 
 // Timing variables
 unsigned long lastSensorCheck = 0;
@@ -101,24 +107,6 @@ void handleButtons() {
     }
 }
 
-// New function to replace checkSensors()
-void handleUserPresenceChanges() {
-    // Get user presence from SafetyMonitor
-    bool currentUserPresent = safetyMonitor.isUserPresent();
-
-    // For debugging and display updates
-    static bool lastUserPresentState = false;
-
-    if (currentUserPresent != lastUserPresentState) {
-        Serial.print("User presence changed: ");
-        Serial.println(currentUserPresent ? "Present" : "Absent");
-        buzzer.beep(800, 50); // Feedback beep
-        lastUserPresentState = currentUserPresent;
-    }
-}
-
-
-
 // Function to check ultrasonic sensors
 void checkUltrasonicSensors() {
     // Measure distances
@@ -156,59 +144,6 @@ void checkUltrasonicSensors() {
 }
 
 void updateMotors() {
-    // Set motor speeds based on current state and speed setting
-    if (stateMachine.getCurrentState() == StateMachine::STATE_SWINGING) {
-        RuntimeConfig& config = RuntimeConfig::getInstance();
-        uint16_t speedValue = 0;
-
-        switch (stateMachine.getCurrentSpeed()) {
-            case StateMachine::SPEED_LOW:
-                speedValue = config.getSpeedLow();
-                break;
-            case StateMachine::SPEED_MEDIUM:
-                speedValue = config.getSpeedMedium();
-                break;
-            case StateMachine::SPEED_HIGH:
-                speedValue = config.getSpeedHigh();
-                break;
-            default:
-                speedValue = 0;
-                break;
-        }
-        safetyMonitor.updateMotorStatus(true, speedValue);
-
-        stepperLeft.setSpeed(speedValue);
-        stepperRight.setSpeed(speedValue);
-
-        stepperLeft.enable();
-        stepperRight.enable();
-
-        stepperLeft.startContinuous();
-        stepperRight.startContinuous();
-    } else if (stateMachine.getCurrentState() == StateMachine::STATE_DOOR_OPENING) {
-        // Start the door opening sequence if not already moving
-        if (!doorActuator.isMoving()) {
-            doorActuator.startExtend(); // Uses default time from Configuration.h
-        }
-    } else if (stateMachine.getCurrentState() == StateMachine::STATE_DOOR_CLOSING) {
-        // Start the door closing sequence if not already moving
-        if (!doorActuator.isMoving()) {
-            doorActuator.startRetract(); // Uses default time from Configuration.h
-        }
-    } else {
-        safetyMonitor.updateMotorStatus(false, 0);
-        stepperLeft.stop();
-        stepperRight.stop();
-
-        // Only disable motors in IDLE or EMERGENCY states
-        if (stateMachine.getCurrentState() == StateMachine::STATE_IDLE ||
-            stateMachine.getCurrentState() == StateMachine::STATE_EMERGENCY) {
-            stepperLeft.disable();
-            stepperRight.disable();
-        }
-    }
-
-    // Always update the stepper drivers
     stepperLeft.update();
     stepperRight.update();
 }
@@ -218,6 +153,7 @@ void setup() {
     Serial.println("Swing starting...");
 
     Wire.setClock(100000);
+    Wire.begin();
 
     Serial.println("Initialising RuntimeConfig...");
     RuntimeConfig& config = RuntimeConfig::getInstance();
@@ -225,6 +161,12 @@ void setup() {
     Serial.println("RuntimeConfig initialised");
 
     // Initialise components
+    Serial.println("Initialising expander...");
+    if (!expander.begin()) {
+        Serial.println("FATAL: Expander chip not found. Halting.");
+        while(1);
+    }
+    Serial.println("Expander initialised");
     Serial.println("Initialising buzzer...");
     buzzer.begin();
     Serial.println("Buzzer initialised");
@@ -257,9 +199,9 @@ void setup() {
     Serial.println("Initialising doorActuator...");
     doorActuator.begin();
     Serial.println("doorActuator initialised");
-    Serial.println("Initialising voiceModule");
-    voiceModule.begin();
-    Serial.println("voiceModule initialised...");
+    //Serial.println("Initialising voiceModule");
+    //voiceModule.begin();
+    //Serial.println("voiceModule initialised...");
     Serial.println("Initialising WiFi...");
     if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
         Serial.println("WiFi connected successfully");
@@ -276,55 +218,50 @@ void setup() {
     stateMachine.setBuzzer(&buzzer);
     stateMachine.setDoorActuator(&doorActuator);
     stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
+    stateMachine.setSteppers(&stepperLeft, &stepperRight);
+
+    // ultrasonicFront.startMeasurement();
+    // ultrasonicRear.startMeasurement();
 
     // Startup beep
     buzzer.beep(1000, 100);
     delay(100);
     buzzer.beep(1500, 100);
 
-    delay(1000);
+    Serial.println("System ready");
+
+    delay(200);
 }
 
 void loop() {
-    // Handle web server first
-    if (wifiManager.isConnected()) {
-        webServer.handleClient();
-    }
-
+    // --- All non-blocking updates run on every loop ---
     handleButtons();
-
-    // RuntimeConfig save
-    static unsigned long lastConfigCheck = 0;
-    if (millis() - lastConfigCheck > 30000) { // Every 30 seconds
-        RuntimeConfig::getInstance().save();
-        lastConfigCheck = millis();
-    }
-
-    // State machine and voice updates
     stateMachine.update();
-    voiceModule.update();
-
-    // Sensor checks
-    unsigned long currentMillis = millis();
-    if (currentMillis - lastSensorCheck >= SENSOR_CHECK_MS) {
-        lastSensorCheck = currentMillis;
-        Serial.println("Checking sensors");
-        safetyMonitor.checkSafety();
-        handleUserPresenceChanges();
-
-        // Sensor debug
-        Serial.print("Front: ");
-        Serial.print(safetyMonitor.getFrontDistance());
-        Serial.print(" cm, Rear: ");
-        Serial.print(safetyMonitor.getRearDistance());
-        Serial.println(" cm");
-    }
-
-    // Update hardware
+    // voiceModule.update(); // Stays commented out for now
     doorActuator.update();
     updateMotors();
 
-    // Small delay
-    delay(10);
-}
+    safetyMonitor.update();
 
+    // --- Timed debug printout ---
+    static unsigned long lastPrintTime = 0;
+    if (millis() - lastPrintTime > 500) {
+        lastPrintTime = millis();
+
+        float currentFrontDistance = safetyMonitor.getFrontDistance();
+        float currentRearDistance = safetyMonitor.getRearDistance();
+
+        Serial.print("Front: ");
+        Serial.print(currentFrontDistance);
+        Serial.print(" cm, Rear: ");
+        Serial.print(currentRearDistance);
+        Serial.println(" cm");
+    }
+
+    // --- Other timed events (Unchanged) ---
+    static unsigned long lastConfigCheck = 0;
+    if (millis() - lastConfigCheck > 30000) {
+        RuntimeConfig::getInstance().save();
+        lastConfigCheck = millis();
+    }
+}

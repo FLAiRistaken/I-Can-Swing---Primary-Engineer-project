@@ -45,6 +45,10 @@ public:
     void updateMotorStatus(bool isRunning, uint16_t currentSpeed);
 
     // Get sensor readings for display/logging
+    void update();
+    void updateSensorReadings();
+    void setFrontDistance(float distance);
+    void setRearDistance(float distance);
     float getFrontDistance() const;
     float getRearDistance() const;
     bool isUserPresent() const;
@@ -89,6 +93,9 @@ private:
     float _rearDistance;
     bool _userPresent;
     SafetyStatus _currentStatus;
+    unsigned long _lastSensorCheck;
+    bool _measureFrontSensor;
+    bool _lastUserPresentState;
 
     // Motor monitoring
     unsigned long _lastMotionCheck;

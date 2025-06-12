@@ -7,43 +7,44 @@
 
 // ---- System Control ----
 constexpr uint8_t PIN_BUZZER         = 9;   // Digital pin for buzzer
-constexpr uint8_t PIN_EMERGENCY_STOP = 2;   // Interrupt-capable pin
+constexpr uint8_t PIN_EMERGENCY_STOP = 3;   // Interrupt-capable pin
 
 // ---- Stepper Motor Control ----
 // L298N Motor Driver Pins for Stepper Control
-constexpr uint8_t PIN_STEPPER1_IN1 = 3;
-constexpr uint8_t PIN_STEPPER1_IN2 = 4;
-constexpr uint8_t PIN_STEPPER1_IN3 = 5;
-constexpr uint8_t PIN_STEPPER1_IN4 = 6;
+constexpr uint8_t PIN_STEPPER1_IN1 = 4;
+constexpr uint8_t PIN_STEPPER1_IN2 = 5;
+constexpr uint8_t PIN_STEPPER1_IN3 = 6;
+constexpr uint8_t PIN_STEPPER1_IN4 = 7;
 
 // Second motor if needed - Set to the reverse of
-constexpr uint8_t PIN_STEPPER2_IN1 = 6;
-constexpr uint8_t PIN_STEPPER2_IN2 = 5;
-constexpr uint8_t PIN_STEPPER2_IN3 = 4;
-constexpr uint8_t PIN_STEPPER2_IN4 = 3;
+constexpr uint8_t PIN_STEPPER2_IN1 = 7;
+constexpr uint8_t PIN_STEPPER2_IN2 = 6;
+constexpr uint8_t PIN_STEPPER2_IN3 = 5;
+constexpr uint8_t PIN_STEPPER2_IN4 = 4;
 
-// ---- Door Actuator ----
-constexpr uint8_t PIN_ACTUATOR_FWD = 7;
-constexpr uint8_t PIN_ACTUATOR_REV = 8;
+// ---- Door Actuator (ON EXPANDER) ----
+constexpr uint8_t PIN_ACTUATOR_FWD = 5;
+constexpr uint8_t PIN_ACTUATOR_REV = 6;
 
-// ---- Buttons (use available digital & analog pins as digital) ----
+// ---- Buttons ----
+// NOW USING EXPANSION BOARD - set pins corrorlate to the expander pins not the Arduinos
 constexpr uint8_t PIN_BTN_START      = 0;   // D12
-constexpr uint8_t PIN_BTN_STOP       = 0;   // D13 (also LED_BUILTIN, avoid using LED at same time)
-constexpr uint8_t PIN_BTN_SPEED_UP   = 0;   // D14
-constexpr uint8_t PIN_BTN_SPEED_DOWN = 0;   // D15
-constexpr uint8_t PIN_BTN_DOOR       = 0;   // D16
+constexpr uint8_t PIN_BTN_STOP       = 1;   // D13 (also LED_BUILTIN, avoid using LED at same time)
+constexpr uint8_t PIN_BTN_SPEED_UP   = 2;   // D14
+constexpr uint8_t PIN_BTN_SPEED_DOWN = 3;   // D15
+constexpr uint8_t PIN_BTN_DOOR       = 4;   // D16
 
 // ---- Sensors ----
 // Pressure sensor (analog only)
 constexpr uint8_t PIN_PRESSURE_SENSOR = A0;  // Analog input
 
 // Ultrasonic Sensor 1 (front, use available digital pins)
-constexpr uint8_t PIN_ULTRASONIC1_TRIG = 10;  // Already used for stepper1 enable, if conflict, move to another unused pin
-constexpr uint8_t PIN_ULTRASONIC1_ECHO = 11;  // Already used for stepper1 dir, if conflict, move to another unused pin
+constexpr uint8_t PIN_ULTRASONIC1_TRIG = A1;  // Already used for stepper1 enable, if conflict, move to another unused pin
+constexpr uint8_t PIN_ULTRASONIC1_ECHO = A2;  // Already used for stepper1 dir, if conflict, move to another unused pin
 
 // If you want a second ultrasonic sensor, use any remaining digital pins (not A4/A5, not used for I2C)
-constexpr uint8_t PIN_ULTRASONIC2_TRIG = 12;
-constexpr uint8_t PIN_ULTRASONIC2_ECHO = 13;
+constexpr uint8_t PIN_ULTRASONIC2_TRIG = A3;
+constexpr uint8_t PIN_ULTRASONIC2_ECHO = 8;
 
 // ---- I2C Display ----
 //constexpr uint8_t PIN_DISPLAY_SDA = A5; // Reserved for I2C
@@ -55,7 +56,7 @@ constexpr uint8_t PIN_I2C_SCL = A5;
 
 // ---- Voice Recognition Module (SoftwareSerial, pick any free digital pins except D0/D1, A4/A5) ----
 constexpr uint8_t PIN_VOICE_RX = 8;  // Example: D8 (if not used elsewhere)
-constexpr uint8_t PIN_VOICE_TX = 7;  // Example: D7 (if not used elsewhere)
+constexpr uint8_t PIN_VOICE_TX = 2;  // Example: D7 (if not used elsewhere)
 
 // ========================
 // System Constants
@@ -65,7 +66,6 @@ constexpr uint16_t SPEED_MEDIUM = 500;
 constexpr uint16_t SPEED_HIGH   = 700;
 constexpr unsigned long DOOR_OPEN_TIME_MS   = 5000;
 constexpr unsigned long BUTTON_DEBOUNCE_MS  = 50;
-constexpr unsigned long DISPLAY_UPDATE_MS   = 1000;
 constexpr unsigned long SENSOR_CHECK_MS     = 100;
 
 // ---- Safety Parameters ----

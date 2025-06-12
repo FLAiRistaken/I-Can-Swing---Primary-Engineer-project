@@ -1,36 +1,36 @@
 // lib/MotorControl/ActuatorDriver.cpp
 #include "ActuatorDriver.h"
 #include "StateMachine.h"
+#include "ExpanderManager.h"
 
-ActuatorDriver::ActuatorDriver(uint8_t forwardPin, uint8_t reversePin, StateMachine* stateMachine)
-    : _forwardPin(forwardPin), _reversePin(reversePin), _stateMachine(stateMachine),
+ActuatorDriver::ActuatorDriver(uint8_t forwardPin, uint8_t reversePin, StateMachine* stateMachine, ExpanderManager* expander)
+    : _forwardPin(forwardPin), _reversePin(reversePin), _stateMachine(stateMachine), _expander(expander),
       _currentDirection(DIRECTION_STOP), _startTime(0), _operationDuration(0), _timedOperation(false) {}
 
 void ActuatorDriver::begin() {
-    pinMode(_forwardPin, OUTPUT);
-    pinMode(_reversePin, OUTPUT);
-    digitalWrite(_forwardPin, LOW);
-    digitalWrite(_reversePin, LOW);
+    _expander->pinMode(_forwardPin, OUTPUT);
+    _expander->pinMode(_reversePin, OUTPUT);
+    stop();
     Serial.println("ActuatorDriver: Initialized");
 }
 
 void ActuatorDriver::extend() {
-    digitalWrite(_forwardPin, HIGH);
-    digitalWrite(_reversePin, LOW);
+    _expander->digitalWrite(_forwardPin, HIGH);
+    _expander->digitalWrite(_reversePin, LOW);
     _currentDirection = DIRECTION_EXTEND;
     Serial.println("ActuatorDriver: Extending");
 }
 
 void ActuatorDriver::retract() {
-    digitalWrite(_forwardPin, LOW);
-    digitalWrite(_reversePin, HIGH);
+    _expander->digitalWrite(_forwardPin, LOW);
+    _expander->digitalWrite(_reversePin, HIGH);
     _currentDirection = DIRECTION_RETRACT;
     Serial.println("ActuatorDriver: Retracting");
 }
 
 void ActuatorDriver::stop() {
-    digitalWrite(_forwardPin, LOW);
-    digitalWrite(_reversePin, LOW);
+    _expander->digitalWrite(_forwardPin, LOW);
+    _expander->digitalWrite(_reversePin, LOW);
     _currentDirection = DIRECTION_STOP;
     Serial.println("ActuatorDriver: Stopped");
 }

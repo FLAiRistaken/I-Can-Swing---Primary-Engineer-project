@@ -15,8 +15,8 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _frontSensor(frontSensor),
       _rearSensor(rearSensor),
       _pressureSensor(pressureSensor),
-      _frontDistance(0.0f),
-      _rearDistance(0.0f),
+      _frontDistance(500.0f),
+      _rearDistance(500.0f),
       _userPresent(false),
       _currentStatus(STATUS_OK),
       _lastMotionCheck(0),
@@ -30,7 +30,10 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _currentSwingPhase(PHASE_UNKNOWN),
       _lastPhaseChange(0),
       _lastFrontDistance(0.0f),
-      _lastRearDistance(0.0f) {}
+      _lastRearDistance(0.0f),
+      _lastSensorCheck(0),
+      _measureFrontSensor(true),
+      _lastUserPresentState(false) {}
 
 void SafetyMonitor::begin() {
     Serial.println("SafetyMonitor: Initialized");
@@ -87,6 +90,44 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkSafety() {
     return _currentStatus;
 }
 
+void SafetyMonitor::update() {
+    // --- Hybrid Ultrasonic Sensor Reading ---
+    const unsigned long SENSOR_CHECK_INTERVAL = 100;
+    if (millis() - _lastSensorCheck > SENSOR_CHECK_INTERVAL) {
+        _lastSensorCheck = millis();
+        if (_measureFrontSensor) {
+            float frontDist = _frontSensor->measureDistance();
+            setFrontDistance(frontDist);
+        } else {
+            float rearDist = _rearSensor->measureDistance();
+            setRearDistance(rearDist);
+        }
+        _measureFrontSensor = !_measureFrontSensor;
+    }
+
+    // --- User Presence Event Generation ---
+    bool currentUserPresent = isUserPresent();
+    if (currentUserPresent != _lastUserPresentState) {
+        if (currentUserPresent) {
+            _stateMachine->processEvent(StateMachine::EVENT_PRESSURE_ON);
+        } else {
+            _stateMachine->processEvent(StateMachine::EVENT_PRESSURE_OFF);
+        }
+        _lastUserPresentState = currentUserPresent;
+    }
+
+    // --- Run the core safety logic ---
+    checkSafety();
+}
+
+void SafetyMonitor::setFrontDistance(float distance) {
+    _frontDistance = distance;
+}
+
+void SafetyMonitor::setRearDistance(float distance) {
+    _rearDistance = distance;
+}
+
 bool SafetyMonitor::detectRapidObstacleChanges() {
     // Record the current obstacle detection
     unsigned long currentTime = millis();
@@ -140,11 +181,6 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
         } else {
             _rearDistance = _rearSensor->measureDistance();
         }
-    } else {
-        // Normal operation
-        _frontDistance = _frontSensor->measureDistance();
-        delay(10);
-        _rearDistance = _rearSensor->measureDistance();
     }
 
     // Store previous readings for phase detection
