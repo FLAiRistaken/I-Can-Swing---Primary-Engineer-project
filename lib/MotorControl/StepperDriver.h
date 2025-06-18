@@ -33,15 +33,8 @@ public:
     // Status query
     bool isRunning() const;
 
-    void enterTestMode();
-    void exitTestMode();
-    void testIndividual(int speed, int steps, bool clockwise);
-    void startRampTest(int startSpeed, int endSpeed, unsigned long duration);
-    void updateRampTest();
-    void testDirection360();
     int getCurrentPosition() const;
     void resetPosition();
-    void setTestPosition(int position);
 
 private:
     Stepper _stepper;         // Arduino's Stepper library instance
@@ -57,10 +50,6 @@ private:
     bool _clockwise;          // Direction flag
 
     int _currentPosition;
-    bool _testMode;
-    unsigned long _rampStartTime;
-    int _rampCurrentSpeed;
-    int _rampTargetSpeed;
 
     // For non-blocking operation
     int _targetSteps;         // Target step count for non-blocking moves
