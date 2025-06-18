@@ -12,8 +12,7 @@ StateMachine::StateMachine()
       _isUserPresent(false),
       _doorActuator(nullptr),
       _buzzer(nullptr),
-      _stepperLeft(nullptr),
-      _stepperRight(nullptr),
+      _swingMotors(nullptr),
       _stateEntryTime(0),
       _doorTimeoutMs(10000),
       _timeoutEnabled(false)
@@ -217,15 +216,12 @@ void StateMachine::enterState(State state) {
         case STATE_SWINGING:
             Serial.print("StateMachine: Starting swing motion at speed: ");
             Serial.println(getSpeedString());
-            if (_stepperLeft && _stepperRight) {
+            if (_swingMotors) {
                 RuntimeConfig& config = RuntimeConfig::getInstance();
                 uint16_t speedValue = config.getSpeedLow(); // Always start at low
-                _stepperLeft->setSpeed(speedValue);
-                _stepperRight->setSpeed(speedValue);
-                _stepperLeft->enable();
-                _stepperRight->enable();
-                _stepperLeft->startContinuous();
-                _stepperRight->startContinuous();
+                _swingMotors->setSpeed(speedValue);
+                _swingMotors->enable();
+                _swingMotors->startContinuous();
             }
             // Audio feedback
             if (_buzzer) {
@@ -282,11 +278,9 @@ void StateMachine::enterState(State state) {
             break;
 
         case STATE_IDLE:
-            if (_stepperLeft && _stepperRight) {
-                _stepperLeft->stop();
-                _stepperRight->stop();
-                _stepperLeft->disable();
-                _stepperRight->disable();
+            if (_swingMotors) {
+                _swingMotors->stop();
+                _swingMotors->disable();
             }
             Serial.println("StateMachine: System is now idle");
             // Audio feedback - single beep
@@ -305,9 +299,8 @@ void StateMachine::exitState(State state) {
     switch (state) {
         case STATE_SWINGING:
             Serial.println("StateMachine: Exiting SWINGING state, ensuring motors are stopped.");
-            if (_stepperLeft && _stepperRight) {
-                _stepperLeft->stop();
-                _stepperRight->stop();
+            if (_swingMotors) {
+                _swingMotors->stop();
             }
             break;
 
@@ -369,9 +362,8 @@ void StateMachine::setDoorActuator(ActuatorDriver* doorActuator) {
     _doorActuator = doorActuator;
 }
 
-void StateMachine::setSteppers(StepperDriver* left, StepperDriver* right) {
-    _stepperLeft = left;
-    _stepperRight = right;
+void StateMachine::setSwingMotor(StepperDriver* motor) {
+    _swingMotors = motor;
 }
 
 StateMachine::State StateMachine::getCurrentState() const {

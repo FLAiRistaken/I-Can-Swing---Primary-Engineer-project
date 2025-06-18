@@ -49,7 +49,7 @@ public:
     // Setters for _buzzer and _doorActuator
     void setBuzzer(BuzzerDriver* buzzer);
     void setDoorActuator(ActuatorDriver* doorActuator);
-    void setSteppers(StepperDriver* left, StepperDriver* right);
+    void setSwingMotor(StepperDriver* motor);
 
     // Timeout setting
     void setDoorTimeout(unsigned long timeoutMs);
@@ -75,8 +75,7 @@ private:
     Speed _currentSpeed;
     ActuatorDriver* _doorActuator;
     BuzzerDriver* _buzzer;
-    StepperDriver* _stepperLeft;
-    StepperDriver* _stepperRight;
+    StepperDriver* _swingMotors;
     bool _isUserPresent; // Flag to track occupancy
     unsigned long _stateEntryTime;
     unsigned long _doorTimeoutMs;

@@ -11,16 +11,10 @@ constexpr uint8_t PIN_EMERGENCY_STOP = 3;   // Interrupt-capable pin
 
 // ---- Stepper Motor Control ----
 // L298N Motor Driver Pins for Stepper Control
-constexpr uint8_t PIN_STEPPER1_IN1 = 4;
-constexpr uint8_t PIN_STEPPER1_IN2 = 5;
-constexpr uint8_t PIN_STEPPER1_IN3 = 6;
-constexpr uint8_t PIN_STEPPER1_IN4 = 7;
-
-// Second motor if needed - Set to the reverse of
-constexpr uint8_t PIN_STEPPER2_IN1 = 7;
-constexpr uint8_t PIN_STEPPER2_IN2 = 6;
-constexpr uint8_t PIN_STEPPER2_IN3 = 5;
-constexpr uint8_t PIN_STEPPER2_IN4 = 4;
+constexpr uint8_t PIN_SWING_MOTOR_IN1 = 4;
+constexpr uint8_t PIN_SWING_MOTOR_IN2 = 5;
+constexpr uint8_t PIN_SWING_MOTOR_IN3 = 6;
+constexpr uint8_t PIN_SWING_MOTOR_IN4 = 7;
 
 // ---- Door Actuator (ON EXPANDER) ----
 constexpr uint8_t PIN_ACTUATOR_FWD = 5;

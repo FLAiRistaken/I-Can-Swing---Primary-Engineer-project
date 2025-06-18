@@ -20,9 +20,8 @@ BuzzerDriver buzzer(PIN_BUZZER);
 ExpanderManager expander;
 ButtonManager buttons(&expander);
 StateMachine stateMachine;
-// Create stepper motor drivers
-StepperDriver stepperLeft(PIN_STEPPER1_IN1, PIN_STEPPER1_IN2, PIN_STEPPER1_IN3, PIN_STEPPER1_IN4);
-StepperDriver stepperRight(PIN_STEPPER2_IN1, PIN_STEPPER2_IN2, PIN_STEPPER2_IN3, PIN_STEPPER2_IN4);
+// Create stepper motor
+StepperDriver swingMotors(PIN_SWING_MOTOR_IN1, PIN_SWING_MOTOR_IN2, PIN_SWING_MOTOR_IN3, PIN_SWING_MOTOR_IN4);
 // Create ultrasonic sensor instances
 UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
@@ -144,8 +143,7 @@ void checkUltrasonicSensors() {
 }
 
 void updateMotors() {
-    stepperLeft.update();
-    stepperRight.update();
+    swingMotors.update();
 }
 
 void setup() {
@@ -190,12 +188,9 @@ void setup() {
     Serial.println("Initialising stateMachine...");
     stateMachine.begin();
     Serial.println("stateMachine initialised");
-    Serial.println("Initialising stepperLeft...");
-    stepperLeft.begin();
-    Serial.println("stepperLeft initialised");
-    Serial.println("Initialising stepperRight...");
-    stepperRight.begin();
-    Serial.println("stepperRight initialised");
+    Serial.println("Initialising swingMotors...");
+    swingMotors.begin();
+    Serial.println("swingMotors initialised");
     Serial.println("Initialising doorActuator...");
     doorActuator.begin();
     Serial.println("doorActuator initialised");
@@ -211,14 +206,10 @@ void setup() {
         Serial.println("WiFi connection failed - continuing without web interface");
     }
 
-    // Set initial stepper directions (opposite for swing motion)
-    stepperLeft.setDirection(true);   // Clockwise
-    stepperRight.setDirection(false); // Counter-clockwise
-
     stateMachine.setBuzzer(&buzzer);
     stateMachine.setDoorActuator(&doorActuator);
     stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
-    stateMachine.setSteppers(&stepperLeft, &stepperRight);
+    stateMachine.setSwingMotor(&swingMotors);
 
     // ultrasonicFront.startMeasurement();
     // ultrasonicRear.startMeasurement();
