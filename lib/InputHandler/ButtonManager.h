@@ -10,9 +10,11 @@ public:
     enum Button {
         BTN_START,
         BTN_STOP,
-        BTN_SPEED_UP,
-        BTN_SPEED_DOWN,
-        BTN_DOOR,
+        BTN_SPEED_LOW,
+        BTN_SPEED_MEDIUM,
+        BTN_SPEED_HIGH,
+        BTN_DOOR_OPEN,
+        BTN_DOOR_CLOSE,
         BTN_EMERGENCY,
         BTN_COUNT  // Use to define array sizes
     };
@@ -30,14 +32,7 @@ public:
 private:
     ExpanderManager* _expander;
 
-    uint8_t _pins[BTN_COUNT] = {
-        PIN_BTN_START,      // 12
-        PIN_BTN_STOP,       // 13
-        PIN_BTN_SPEED_UP,   // A0
-        PIN_BTN_SPEED_DOWN, // A1
-        PIN_BTN_DOOR,       // A2
-        PIN_EMERGENCY_STOP  // 2
-    };
+    uint8_t _pins[BTN_COUNT];
 
     bool _currentState[BTN_COUNT] = {false};
     bool _lastState[BTN_COUNT] = {false};

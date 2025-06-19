@@ -64,12 +64,12 @@ void VoiceRecognition::handleVoiceCommand(int command) {
 
         case CMD_OPEN:
             Serial.println("VoiceRecognition: DOOR command received");
-            _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+            _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPEN_PRESSED);
             break;
 
         case CMD_CLOSE:
             Serial.println("VoiceRecognition: DOOR command received");
-            _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+            _stateMachine->processEvent(StateMachine::EVENT_DOOR_CLOSE_PRESSED);
             break;
 
         default:

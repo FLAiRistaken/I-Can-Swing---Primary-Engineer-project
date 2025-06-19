@@ -7,6 +7,7 @@
 class ActuatorDriver;
 class BuzzerDriver;
 class StepperDriver;
+class DoorActuatorManager;
 
 class StateMachine {
 public:
@@ -25,7 +26,11 @@ public:
         EVENT_STOP_PRESSED,
         EVENT_SPEED_UP,
         EVENT_SPEED_DOWN,
-        EVENT_DOOR_TOGGLE,
+        EVENT_SPEED_SET_LOW,
+        EVENT_SPEED_SET_MEDIUM,
+        EVENT_SPEED_SET_HIGH,
+        EVENT_DOOR_OPEN_PRESSED,
+        EVENT_DOOR_CLOSE_PRESSED,
         EVENT_PRESSURE_ON,
         EVENT_PRESSURE_OFF,
         EVENT_OBSTACLE_DETECTED,
@@ -48,7 +53,7 @@ public:
 
     // Setters for _buzzer and _doorActuator
     void setBuzzer(BuzzerDriver* buzzer);
-    void setDoorActuator(ActuatorDriver* doorActuator);
+    void setDoorActuator(DoorActuatorManager* doorActuator);
     void setSwingMotor(StepperDriver* motor);
 
     // Timeout setting
@@ -75,7 +80,7 @@ public:
 private:
     State _currentState;
     Speed _currentSpeed;
-    ActuatorDriver* _doorActuator;
+    DoorActuatorManager* _doorActuator;
     BuzzerDriver* _buzzer;
     StepperDriver* _swingMotors;
     bool _isUserPresent; // Flag to track occupancy

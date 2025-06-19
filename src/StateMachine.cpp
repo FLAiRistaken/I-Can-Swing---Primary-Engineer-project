@@ -3,6 +3,7 @@
 #include "Debug.h"
 #include "BuzzerDriver.h"
 #include "ActuatorDriver.h"
+#include "DoorActuatorManager.h"
 #include "RuntimeConfig.h"
 #include "StepperDriver.h"
 
@@ -108,77 +109,112 @@ void StateMachine::processEvent(Event event) {
                     transition(STATE_SWINGING);
                 } else {
                     DEBUG_PRINTLN("StateMachine: Start pressed, but user not present. Doing nothing.");
-                    // Optional: Add a short buzzer beep here to indicate why it didn't start
                     // buzzer.beep(600, 150);
                 }
-            } else if (event == EVENT_DOOR_TOGGLE) {
+            } else if (event == EVENT_DOOR_OPEN_PRESSED) {
                 DEBUG_PRINTLN("StateMachine: Door toggle event in IDLE. Transitioning to DOOR_OPENING.");
                 transition(STATE_DOOR_OPENING);
+            } else if (event == EVENT_DOOR_CLOSE_PRESSED) {
+                // In IDLE, door should be closed. If pressed, it could be a recalibration or error recovery.
+                DEBUG_PRINTLN("StateMachine: Door CLOSE pressed in IDLE. Transitioning to DOOR_CLOSING (e.g., recalibrate/ensure closed).");
+                transition(STATE_DOOR_CLOSING);
             }
-            // Note: EVENT_PRESSURE_ON/OFF are handled above by setting the flag.
-            // No direct transition needed here based *only* on pressure change.
             break;
 
         case STATE_SWINGING:
             DEBUG_PRINTLN("StateMachine: Handling event in SWINGING state.");
-            // Stop event OR pressure becoming OFF (handled in Step 2)
             if (event == EVENT_STOP_PRESSED) {
-                 DEBUG_PRINTLN("StateMachine: Stop pressed. Initiating smooth stop.");
-                 if (_swingMotors) {
+                DEBUG_PRINTLN("StateMachine: Stop pressed. Initiating smooth stop.");
+                if (_swingMotors) {
                     _swingMotors->smoothStop();
-                 }
+                }
                 _currentSpeed = SPEED_OFF;
                 transition(STATE_IDLE);
             } else if (event == EVENT_SPEED_UP) {
                 if (_currentSpeed < SPEED_HIGH) {
                     _currentSpeed = static_cast<Speed>(_currentSpeed + 1);
                     DEBUG_PRINT("StateMachine: Speed increased to "); DEBUG_PRINTLN(getSpeedString());
-                    // Need to signal motor controller about speed change here
-                    // motorControl.setSpeed(_currentSpeed); // Example
+                    // Apply new speed to motor
+                    if (_swingMotors) {
+                        RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
+                        if (_currentSpeed == SPEED_LOW) _swingMotors->setSpeed(config.getSpeedLow());
+                        else if (_currentSpeed == SPEED_MEDIUM) _swingMotors->setSpeed(config.getSpeedMedium());
+                        else if (_currentSpeed == SPEED_HIGH) _swingMotors->setSpeed(config.getSpeedHigh());
+                    }
                 } else {
-                     DEBUG_PRINTLN("StateMachine: Already at max speed.");
+                    DEBUG_PRINTLN("StateMachine: Already at max speed.");
                 }
             } else if (event == EVENT_SPEED_DOWN) {
-                 if (_currentSpeed > SPEED_LOW) {
+                if (_currentSpeed > SPEED_LOW) {
                     _currentSpeed = static_cast<Speed>(_currentSpeed - 1);
                     DEBUG_PRINT("StateMachine: Speed decreased to "); DEBUG_PRINTLN(getSpeedString());
-                     // Need to signal motor controller about speed change here
-                     // motorControl.setSpeed(_currentSpeed); // Example
+                    // Apply new speed to motor
+                    if (_swingMotors) {
+                        RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
+                        if (_currentSpeed == SPEED_LOW) _swingMotors->setSpeed(config.getSpeedLow());
+                        else if (_currentSpeed == SPEED_MEDIUM) _swingMotors->setSpeed(config.getSpeedMedium());
+                        else if (_currentSpeed == SPEED_HIGH) _swingMotors->setSpeed(config.getSpeedHigh());
+                    }
                 } else {
-                     DEBUG_PRINTLN("StateMachine: Already at min speed.");
+                    DEBUG_PRINTLN("StateMachine: Already at min speed.");
+                }
+            } else if (event == EVENT_SPEED_SET_LOW) { // ADD: Direct LOW speed button
+                DEBUG_PRINTLN("StateMachine: Direct speed set to LOW.");
+                _currentSpeed = SPEED_LOW;
+                if (_swingMotors) {
+                    RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
+                    _swingMotors->setSpeed(config.getSpeedLow());
+                }
+            } else if (event == EVENT_SPEED_SET_MEDIUM) { // ADD: Direct MEDIUM speed button
+                DEBUG_PRINTLN("StateMachine: Direct speed set to MEDIUM.");
+                _currentSpeed = SPEED_MEDIUM;
+                if (_swingMotors) {
+                    RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
+                    _swingMotors->setSpeed(config.getSpeedMedium());
+                }
+            } else if (event == EVENT_SPEED_SET_HIGH) { // ADD: Direct HIGH speed button
+                DEBUG_PRINTLN("StateMachine: Direct speed set to HIGH.");
+                _currentSpeed = SPEED_HIGH;
+                if (_swingMotors) {
+                    RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
+                    _swingMotors->setSpeed(config.getSpeedHigh());
                 }
             } else if (event == EVENT_OBSTACLE_DETECTED) {
-                 DEBUG_PRINTLN("StateMachine: Obstacle detected while swinging. Transitioning to ERROR.");
+                DEBUG_PRINTLN("StateMachine: Obstacle detected while swinging. Transitioning to ERROR.");
                 _currentSpeed = SPEED_OFF;
                 transition(STATE_ERROR);
+            } else if (event == EVENT_DOOR_OPEN_PRESSED || event == EVENT_DOOR_CLOSE_PRESSED) {
+                DEBUG_PRINTLN("StateMachine: Door button pressed while swinging. Ignoring.");
             }
             break;
 
         case STATE_DOOR_OPENING:
-             DEBUG_PRINTLN("StateMachine: Handling event in DOOR_OPENING state.");
-            if (event == EVENT_DOOR_OPENED) { // This event needs to be generated by the door actuator logic
-                 DEBUG_PRINTLN("StateMachine: Door opened fully. Transitioning to IDLE.");
+            DEBUG_PRINTLN("StateMachine: Handling event in DOOR_OPENING state.");
+            if (event == EVENT_DOOR_OPENED) { // Door opened fully (event from DoorActuatorManager)
+                DEBUG_PRINTLN("StateMachine: Door opened fully. Transitioning to IDLE.");
                 transition(STATE_IDLE);
-            } else if (event == EVENT_DOOR_TOGGLE) { // Allow interrupting opening to close
-                 DEBUG_PRINTLN("StateMachine: Door toggle event while opening. Transitioning to DOOR_CLOSING.");
+            } else if (event == EVENT_DOOR_CLOSE_PRESSED) { // Allow interrupting opening to close
+                DEBUG_PRINTLN("StateMachine: Door CLOSE pressed while opening. Transitioning to DOOR_CLOSING.");
                 transition(STATE_DOOR_CLOSING);
+            } else if (event == EVENT_DOOR_OPEN_PRESSED) { // Ignore if already trying to open
+                DEBUG_PRINTLN("StateMachine: Door OPEN pressed while already opening. Ignoring.");
             } else if (event == EVENT_OBSTACLE_DETECTED) {
-                // NEW: Add obstacle detection during door operations
                 DEBUG_PRINTLN("StateMachine: Obstacle detected while door opening. Transitioning to ERROR.");
                 transition(STATE_ERROR);
             }
             break;
 
         case STATE_DOOR_CLOSING:
-             DEBUG_PRINTLN("StateMachine: Handling event in DOOR_CLOSING state.");
-            if (event == EVENT_DOOR_CLOSED) { // This event needs to be generated by the door actuator logic
-                 DEBUG_PRINTLN("StateMachine: Door closed fully. Transitioning to IDLE.");
+            DEBUG_PRINTLN("StateMachine: Handling event in DOOR_CLOSING state.");
+            if (event == EVENT_DOOR_CLOSED) { // Door closed fully (event from DoorActuatorManager)
+                DEBUG_PRINTLN("StateMachine: Door closed fully. Transitioning to IDLE.");
                 transition(STATE_IDLE);
-            } else if (event == EVENT_DOOR_TOGGLE) { // Allow interrupting closing to open
-                 DEBUG_PRINTLN("StateMachine: Door toggle event while closing. Transitioning to DOOR_OPENING.");
+            } else if (event == EVENT_DOOR_OPEN_PRESSED) { // Allow interrupting closing to open
+                DEBUG_PRINTLN("StateMachine: Door OPEN pressed while closing. Transitioning to DOOR_OPENING.");
                 transition(STATE_DOOR_OPENING);
+            } else if (event == EVENT_DOOR_CLOSE_PRESSED) { // Ignore if already trying to close
+                DEBUG_PRINTLN("StateMachine: Door CLOSE pressed while already closing. Ignoring.");
             } else if (event == EVENT_OBSTACLE_DETECTED) {
-                // NEW: Add obstacle detection during door operations
                 DEBUG_PRINTLN("StateMachine: Obstacle detected while door closing. Transitioning to ERROR.");
                 transition(STATE_ERROR);
             }
@@ -239,7 +275,7 @@ void StateMachine::enterState(State state) {
             Serial.println("StateMachine: Initiating door opening sequence");
             // Direct control of door actuator
             if (_doorActuator) {
-                _doorActuator->startExtend();
+                _doorActuator->openDoor();
                 _timeoutEnabled = true;
             }
             // Audio feedback
@@ -252,7 +288,7 @@ void StateMachine::enterState(State state) {
             Serial.println("StateMachine: Initiating door closing sequence");
             // Direct control of door actuator
             if (_doorActuator) {
-                _doorActuator->startRetract();
+                _doorActuator->closeDoor();
                 _timeoutEnabled = true;
             }
             // Audio feedback
@@ -316,7 +352,8 @@ void StateMachine::exitState(State state) {
         case STATE_DOOR_CLOSING:
             // Stop door movement directly
             if (_doorActuator) {
-                _doorActuator->stop();
+                _doorActuator->stopDoor();
+                _timeoutEnabled = false;
             }
             _timeoutEnabled = false;
             Serial.println("StateMachine: Stopping door movement");
@@ -352,7 +389,7 @@ void StateMachine::update() {
             // Handle timeout based on current state
             if (_currentState == STATE_DOOR_OPENING || _currentState == STATE_DOOR_CLOSING) {
                 if (_doorActuator) {
-                    _doorActuator->stop();
+                    _doorActuator->stopDoor();
                 }
                 transition(STATE_ERROR);
             }
@@ -375,7 +412,7 @@ void StateMachine::setBuzzer(BuzzerDriver* buzzer) {
     _buzzer = buzzer;
 }
 
-void StateMachine::setDoorActuator(ActuatorDriver* doorActuator) {
+void StateMachine::setDoorActuator(DoorActuatorManager* doorActuator) {
     _doorActuator = doorActuator;
 }
 

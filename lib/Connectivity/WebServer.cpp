@@ -1038,7 +1038,7 @@ void WebServer::handleControlCommand(WiFiClient &client, String command)
     else if (command == "door-toggle")
     {
         // Toggle door based on current state
-        _stateMachine->processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+        _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPEN_PRESSED);
     }
     else
     {

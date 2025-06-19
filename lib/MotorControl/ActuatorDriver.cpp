@@ -1,10 +1,9 @@
 // lib/MotorControl/ActuatorDriver.cpp
 #include "ActuatorDriver.h"
-#include "StateMachine.h"
 #include "ExpanderManager.h"
 
-ActuatorDriver::ActuatorDriver(uint8_t forwardPin, uint8_t reversePin, StateMachine* stateMachine, ExpanderManager* expander)
-    : _forwardPin(forwardPin), _reversePin(reversePin), _stateMachine(stateMachine), _expander(expander),
+ActuatorDriver::ActuatorDriver(uint8_t forwardPin, uint8_t reversePin, ExpanderManager* expander)
+    : _forwardPin(forwardPin), _reversePin(reversePin), _expander(expander),
       _currentDirection(DIRECTION_STOP), _startTime(0), _operationDuration(0), _timedOperation(false) {}
 
 void ActuatorDriver::begin() {
@@ -69,24 +68,11 @@ void ActuatorDriver::update() {
         stop();
         _timedOperation = false;
 
-        #ifndef ACTUATOR_TEST_MODE
-        // Send event to state machine (only in production builds)
-        if (_stateMachine) {
-            if (_currentDirection == DIRECTION_EXTEND) {
-                _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPENED);
-                Serial.println("ActuatorDriver: Door open complete, sending EVENT_DOOR_OPENED");
-            } else if (_currentDirection == DIRECTION_RETRACT) {
-                _stateMachine->processEvent(StateMachine::EVENT_DOOR_CLOSED);
-                Serial.println("ActuatorDriver: Door close complete, sending EVENT_DOOR_CLOSED");
-            }
-        }
-        #endif
-
-        // Test mode feedback (always available)
+        // Test mode feedback (always available, now the only output)
         if (_currentDirection == DIRECTION_EXTEND) {
-            Serial.println("ActuatorDriver: Door open operation complete (test mode)");
+            Serial.println("ActuatorDriver: Door open operation complete.");
         } else if (_currentDirection == DIRECTION_RETRACT) {
-            Serial.println("ActuatorDriver: Door close operation complete (test mode)");
+            Serial.println("ActuatorDriver: Door close operation complete.");
         }
     }
 }

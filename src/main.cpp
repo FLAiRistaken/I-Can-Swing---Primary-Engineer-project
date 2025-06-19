@@ -10,6 +10,7 @@
 #include "UltrasonicSensor.h"
 #include "PressureSensor.h"
 #include "ActuatorDriver.h"
+#include "DoorActuatorManager.h"
 #include "SafetyMonitor.h"
 #include "VoiceRecognition.h"
 #include "WiFiManager.h"
@@ -21,16 +22,20 @@ ExpanderManager expander;
 ButtonManager buttons(&expander);
 StateMachine stateMachine;
 // Create stepper motor
-StepperDriver swingMotors(PIN_SWING_MOTOR_IN1, PIN_SWING_MOTOR_IN2, PIN_SWING_MOTOR_IN3, PIN_SWING_MOTOR_IN4);
+StepperDriver swingMotors(PIN_SWING_MOTOR_IN1, PIN_SWING_MOTOR_IN2,
+                          PIN_SWING_MOTOR_IN3, PIN_SWING_MOTOR_IN4);
 // Create ultrasonic sensor instances
 UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
-ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine, &expander);
+DoorActuatorManager doorActuator(PIN_DOOR_ACTUATOR1_FWD, PIN_DOOR_ACTUATOR1_REV,
+                                 PIN_DOOR_ACTUATOR2_FWD, PIN_DOOR_ACTUATOR2_REV,
+                                 &stateMachine, &expander);
 VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 
 // Create SafetyMonitor instance
-SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
+SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront,
+                            &ultrasonicRear, &pressureSensor);
 
 WiFiManager wifiManager;
 WebServer webServer(&stateMachine, &safetyMonitor);
@@ -60,16 +65,26 @@ void handleButtons() {
         stateMachine.processEvent(StateMachine::EVENT_STOP_PRESSED);
     }
 
-    if (buttons.wasPressed(ButtonManager::BTN_SPEED_UP)) {
-        stateMachine.processEvent(StateMachine::EVENT_SPEED_UP);
+    if (buttons.wasPressed(ButtonManager::BTN_SPEED_LOW)) {
+        Serial.println("DEBUG: Speed LOW button pressed");
+        stateMachine.processEvent(StateMachine::EVENT_SPEED_SET_LOW);
+    }
+    if (buttons.wasPressed(ButtonManager::BTN_SPEED_MEDIUM)) {
+        Serial.println("DEBUG: Speed MEDIUM button pressed");
+        stateMachine.processEvent(StateMachine::EVENT_SPEED_SET_MEDIUM);
+    }
+    if (buttons.wasPressed(ButtonManager::BTN_SPEED_HIGH)) {
+        Serial.println("DEBUG: Speed HIGH button pressed");
+        stateMachine.processEvent(StateMachine::EVENT_SPEED_SET_HIGH);
     }
 
-    if (buttons.wasPressed(ButtonManager::BTN_SPEED_DOWN)) {
-        stateMachine.processEvent(StateMachine::EVENT_SPEED_DOWN);
+    if (buttons.wasPressed(ButtonManager::BTN_DOOR_OPEN)) {
+        Serial.println("DEBUG: Door OPEN button pressed");
+        stateMachine.processEvent(StateMachine::EVENT_DOOR_OPEN_PRESSED);
     }
-
-    if (buttons.wasPressed(ButtonManager::BTN_DOOR)) {
-        stateMachine.processEvent(StateMachine::EVENT_DOOR_TOGGLE);
+    if (buttons.wasPressed(ButtonManager::BTN_DOOR_CLOSE)) {
+        Serial.println("DEBUG: Door CLOSE button pressed");
+        stateMachine.processEvent(StateMachine::EVENT_DOOR_CLOSE_PRESSED);
     }
 
     if (buttons.wasPressed(ButtonManager::BTN_EMERGENCY)) {

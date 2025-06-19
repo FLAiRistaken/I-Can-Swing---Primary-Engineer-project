@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include "Configuration.h"
 
-class StateMachine;
 class ExpanderManager;
 
 class ActuatorDriver {
@@ -15,7 +14,7 @@ public:
         DIRECTION_RETRACT
     };
 
-    ActuatorDriver(uint8_t forwardPin, uint8_t reversePin, StateMachine* stateMachine, ExpanderManager* expander);
+    ActuatorDriver(uint8_t forwardPin, uint8_t reversePin, ExpanderManager* expander);
     void begin();
 
     // Control methods
@@ -36,7 +35,6 @@ private:
     uint8_t _forwardPin;
     uint8_t _reversePin;
     Direction _currentDirection;
-    StateMachine* _stateMachine;  // Reference to state machine for events
     ExpanderManager* _expander;
 
     // For timed operation
