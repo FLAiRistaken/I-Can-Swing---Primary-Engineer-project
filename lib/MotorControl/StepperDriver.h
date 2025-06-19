@@ -1,6 +1,5 @@
 // lib/MotorControl/StepperDriver.h
 #pragma once
-
 #include <Arduino.h>
 #include <Stepper.h>
 #include "Configuration.h"
@@ -12,10 +11,8 @@ public:
 
     void begin();
 
-    // Speed control in RPM (not steps per second like before)
+    // Speed control in RPM
     void setSpeed(uint16_t rpm);
-
-    // Direction control (maintained for compatibility)
     void setDirection(bool clockwise);
 
     // Enable/disable control
@@ -23,9 +20,23 @@ public:
     void disable();
 
     // Movement control methods
-    void startContinuous();  // Start continuous rotation
-    void stop();             // Stop motion
-    void step(int steps);    // Move specific number of steps
+    void startContinuous();     // Start continuous rotation
+    void stop();               // Stop motion
+
+    // Swing-specific methods
+    void startSwinging();      // Begin 45° oscillating motion
+    void stopSwinging();       // Stop swinging and return to center
+    bool isSwinging() const;   // Check if currently swinging
+
+    // Enhanced stop methods
+    void emergencyHalt();      // Immediate stop, hold current position
+    void smoothStop();         // Complete current swing, then stop at center
+    void returnHome();         // Move to center position from anywhere
+
+    // Position tracking
+    bool isAtCenter() const;   // Check if at home position
+    int getCurrentPosition() const;  // Position in steps from center
+    float getCurrentAngle() const;   // Position in degrees from center
 
     // Must be called in loop() to handle stepping
     void update();
@@ -33,33 +44,26 @@ public:
     // Status query
     bool isRunning() const;
 
-    int getCurrentPosition() const;
-    void resetPosition();
-
 private:
-    Stepper _stepper;         // Arduino's Stepper library instance
-    uint8_t _in1Pin;          // L298N control pin 1
-    uint8_t _in2Pin;          // L298N control pin 2
-    uint8_t _in3Pin;          // L298N control pin 3
-    uint8_t _in4Pin;          // L298N control pin 4
+    Stepper _stepper;           // Arduino's Stepper library instance
+    uint8_t _in1Pin, _in2Pin, _in3Pin, _in4Pin;  // L298N control pins
+    int _stepsPerRevolution;    // Steps per full rotation
+    uint16_t _speed;           // Speed in RPM
+    bool _enabled;             // If motor is enabled
+    bool _running;             // If motor is currently running
+    bool _clockwise;           // Direction flag
 
-    int _stepsPerRevolution;  // Steps per full rotation (typically 200)
-    uint16_t _speed;          // Speed in RPM
-    bool _enabled;            // If motor is enabled
-    bool _running;            // If motor is currently running
-    bool _clockwise;          // Direction flag
+    // Swing variables
+    bool _swinging;            // If currently in swing mode
+    bool _swingDirection;      // true = forward, false = backward
+    int _swingSteps;           // Steps for 45 degrees
 
-    int _currentPosition;
+    // Position tracking
+    int _currentPosition;      // Current position relative to center (in steps)
+    bool _returningHome;       // Flag for home return operation
+    bool _emergencyHalted;     // Flag for emergency stop state
 
-    // For non-blocking operation
-    int _targetSteps;         // Target step count for non-blocking moves
-    int _currentSteps;        // Current step count
-    unsigned long _lastStepTime;  // Timing control
-    unsigned long _stepInterval;  // Time between steps (microseconds)
-
-    // Convert between RPM and step interval
-    void calculateStepInterval();
-
-    // Helper to set all pins low (power saving)
-    void setPinsLow();
+    // Helper methods
+    void setPinsLow();         // Set all pins low (power saving)
+    void updatePosition(int steps);  // Update position tracking
 };

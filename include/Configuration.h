@@ -49,8 +49,8 @@ constexpr uint8_t PIN_I2C_SDA = A4;
 constexpr uint8_t PIN_I2C_SCL = A5;
 
 // ---- Voice Recognition Module (SoftwareSerial, pick any free digital pins except D0/D1, A4/A5) ----
-constexpr uint8_t PIN_VOICE_RX = 8;  // Example: D8 (if not used elsewhere)
-constexpr uint8_t PIN_VOICE_TX = 2;  // Example: D7 (if not used elsewhere)
+constexpr uint8_t PIN_VOICE_RX = 10;  // Example: D8 (if not used elsewhere)
+constexpr uint8_t PIN_VOICE_TX = 11;  // Example: D7 (if not used elsewhere)
 
 // ========================
 // System Constants
@@ -58,7 +58,7 @@ constexpr uint8_t PIN_VOICE_TX = 2;  // Example: D7 (if not used elsewhere)
 constexpr uint16_t SPEED_LOW    = 300;
 constexpr uint16_t SPEED_MEDIUM = 500;
 constexpr uint16_t SPEED_HIGH   = 700;
-constexpr unsigned long DOOR_OPEN_TIME_MS   = 5000;
+constexpr unsigned long DOOR_OPEN_TIME_MS   = 16000;
 constexpr unsigned long BUTTON_DEBOUNCE_MS  = 50;
 constexpr unsigned long SENSOR_CHECK_MS     = 100;
 

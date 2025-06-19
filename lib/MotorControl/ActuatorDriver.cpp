@@ -69,16 +69,28 @@ void ActuatorDriver::update() {
         stop();
         _timedOperation = false;
 
-        // Send event to state machine based on completed operation
+        #ifndef ACTUATOR_TEST_MODE
+        // Send event to state machine (only in production builds)
+        if (_stateMachine) {
+            if (_currentDirection == DIRECTION_EXTEND) {
+                _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPENED);
+                Serial.println("ActuatorDriver: Door open complete, sending EVENT_DOOR_OPENED");
+            } else if (_currentDirection == DIRECTION_RETRACT) {
+                _stateMachine->processEvent(StateMachine::EVENT_DOOR_CLOSED);
+                Serial.println("ActuatorDriver: Door close complete, sending EVENT_DOOR_CLOSED");
+            }
+        }
+        #endif
+
+        // Test mode feedback (always available)
         if (_currentDirection == DIRECTION_EXTEND) {
-            _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPENED);
-            Serial.println("ActuatorDriver: Door open operation complete, sending EVENT_DOOR_OPENED");
+            Serial.println("ActuatorDriver: Door open operation complete (test mode)");
         } else if (_currentDirection == DIRECTION_RETRACT) {
-            _stateMachine->processEvent(StateMachine::EVENT_DOOR_CLOSED);
-            Serial.println("ActuatorDriver: Door close operation complete, sending EVENT_DOOR_CLOSED");
+            Serial.println("ActuatorDriver: Door close operation complete (test mode)");
         }
     }
 }
+
 
 bool ActuatorDriver::isMoving() const {
     return _currentDirection != DIRECTION_STOP;

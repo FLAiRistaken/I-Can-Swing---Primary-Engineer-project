@@ -60,6 +60,7 @@ void StateMachine::processEvent(Event event) {
     if (_currentState == STATE_EMERGENCY) {
         if (event == EVENT_EMERGENCY_RESET) {
             DEBUG_PRINTLN("StateMachine: Emergency reset received. Transitioning to IDLE.");
+            resetFromEmergency();
             _currentSpeed = SPEED_OFF;
             transition(STATE_IDLE);
         } else {
@@ -122,7 +123,10 @@ void StateMachine::processEvent(Event event) {
             DEBUG_PRINTLN("StateMachine: Handling event in SWINGING state.");
             // Stop event OR pressure becoming OFF (handled in Step 2)
             if (event == EVENT_STOP_PRESSED) {
-                 DEBUG_PRINTLN("StateMachine: Stop pressed. Transitioning to IDLE.");
+                 DEBUG_PRINTLN("StateMachine: Stop pressed. Initiating smooth stop.");
+                 if (_swingMotors) {
+                    _swingMotors->smoothStop();
+                 }
                 _currentSpeed = SPEED_OFF;
                 transition(STATE_IDLE);
             } else if (event == EVENT_SPEED_UP) {
@@ -221,7 +225,7 @@ void StateMachine::enterState(State state) {
                 uint16_t speedValue = config.getSpeedLow(); // Always start at low
                 _swingMotors->setSpeed(speedValue);
                 _swingMotors->enable();
-                _swingMotors->startContinuous();
+                _swingMotors->startSwinging();
             }
             // Audio feedback
             if (_buzzer) {
@@ -269,6 +273,10 @@ void StateMachine::enterState(State state) {
 
         case STATE_EMERGENCY:
             Serial.println("StateMachine: EMERGENCY MODE ACTIVATED");
+
+            if (_swingMotors) {
+                _swingMotors->emergencyHalt();
+            }
             // Audio feedback - urgent double beep
             if (_buzzer) {
                 _buzzer->beep(2000, 500);
@@ -279,7 +287,7 @@ void StateMachine::enterState(State state) {
 
         case STATE_IDLE:
             if (_swingMotors) {
-                _swingMotors->stop();
+                _swingMotors->returnHome();
                 _swingMotors->disable();
             }
             Serial.println("StateMachine: System is now idle");
@@ -300,7 +308,7 @@ void StateMachine::exitState(State state) {
         case STATE_SWINGING:
             Serial.println("StateMachine: Exiting SWINGING state, ensuring motors are stopped.");
             if (_swingMotors) {
-                _swingMotors->stop();
+                _swingMotors->stopSwinging();
             }
             break;
 
@@ -353,6 +361,15 @@ void StateMachine::update() {
         }
     }
 }
+
+void StateMachine::resetFromEmergency() {
+    if (_currentState == STATE_EMERGENCY && _swingMotors) {
+        // Reset the emergency halt state in the motor
+        _swingMotors->returnHome();  // Move to safe home position
+        Serial.println("StateMachine: Emergency state reset, motor returning home");
+    }
+}
+
 
 void StateMachine::setBuzzer(BuzzerDriver* buzzer) {
     _buzzer = buzzer;

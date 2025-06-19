@@ -27,7 +27,7 @@ UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Fr
 UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
 ActuatorDriver doorActuator(PIN_ACTUATOR_FWD, PIN_ACTUATOR_REV, &stateMachine, &expander);
-//VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
+VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 
 // Create SafetyMonitor instance
 SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront, &ultrasonicRear, &pressureSensor);
@@ -194,9 +194,9 @@ void setup() {
     Serial.println("Initialising doorActuator...");
     doorActuator.begin();
     Serial.println("doorActuator initialised");
-    //Serial.println("Initialising voiceModule");
-    //voiceModule.begin();
-    //Serial.println("voiceModule initialised...");
+    Serial.println("Initialising voiceModule");
+    voiceModule.begin();
+    Serial.println("voiceModule initialised...");
     Serial.println("Initialising WiFi...");
     if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
         Serial.println("WiFi connected successfully");
@@ -211,8 +211,8 @@ void setup() {
     stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
     stateMachine.setSwingMotor(&swingMotors);
 
-    // ultrasonicFront.startMeasurement();
-    // ultrasonicRear.startMeasurement();
+    ultrasonicFront.startMeasurement();
+    ultrasonicRear.startMeasurement();
 
     // Startup beep
     buzzer.beep(1000, 100);
@@ -225,10 +225,11 @@ void setup() {
 }
 
 void loop() {
+    webServer.handleClient();
     // --- All non-blocking updates run on every loop ---
     handleButtons();
     stateMachine.update();
-    // voiceModule.update(); // Stays commented out for now
+    voiceModule.update(); // Stays commented out for now
     doorActuator.update();
     updateMotors();
 

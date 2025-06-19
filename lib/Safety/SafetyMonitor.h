@@ -9,15 +9,6 @@
 
 class RuntimeConfig;
 
-struct CalibrationData {
-    int readingCount;
-    float minValue;
-    float maxValue;
-    float average;
-    float baseline;
-    bool isValid;
-};
-
 class SafetyMonitor {
 public:
     enum SafetyStatus {
@@ -58,29 +49,6 @@ public:
     // Dynamic thresolds
     float getEffectiveWarningDistance() const;
     float getEffectiveCriticalDistance() const;
-
-    // Calibration
-    void enterCalibrationMode(String sensorType);
-    void exitCalibrationMode();
-    bool saveCalibrationData();
-    void resetCalibrationData();
-    CalibrationData getCurrentCalibrationData();
-    bool updateSensorThresholds(String sensor, float minVal, float maxVal);
-
-    // Getter methods for calibration data
-    float getUltrasonicMinThreshold(int sensor);
-    float getUltrasonicMaxThreshold(int sensor);
-    float getUltrasonicBaseline(int sensor);
-    int getPressureThreshold();
-    float getPressureBaseline();
-
-    // Test mode functions
-    void simulateObstacleDetection(String sensor, float distance);
-    void simulateUserDeparture();
-    void simulateMotorStall();
-    bool isInTestMode() const;
-    void enterTestMode();
-    void exitTestMode();
 
 private:
     StateMachine* _stateMachine;
@@ -132,28 +100,4 @@ private:
 
     // For expected ground detection filtering
     bool isReadingExpectedGround(float distance, float previosuDistance);
-
-    // Calibration
-    bool _calibrationMode;
-    String _calibratingsensor;
-    CalibrationData _currentCalibration;
-    float _calibrationReadings[100];
-    int _calibrationIndex;
-    unsigned long _lastCalibrationReading;
-
-    // Calibration thresholds (stored values)
-    float _ultrasonic1MinThreshold;
-    float _ultrasonic1MaxThreshold;
-    float _ultrasonic1Baseline;
-    float _ultrasonic2MinThreshold;
-    float _ultrasonic2MaxThreshold;
-    float _ultrasonic2Baseline;
-    int _pressureThreshold;
-    float _pressureBaseline;
-
-    // Safety test web interface
-    bool _testModeEnabled;
-    float _simulatedFrontDistance;
-    float _simulatedRearDistance;
-    bool _simulatedUserPresent;
 };

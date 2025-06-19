@@ -70,6 +70,8 @@ public:
     const char* getStateString() const;
     const char* getSpeedString() const;
 
+    void resetFromEmergency();
+
 private:
     State _currentState;
     Speed _currentSpeed;
