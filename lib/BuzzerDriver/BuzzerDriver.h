@@ -12,6 +12,9 @@ public:
     void beep(uint16_t frequency = 1000, uint32_t duration = 100);
     void stop();
 
+    void playAlertTone();
+    void playGiveMelody();
+
 private:
     uint8_t _pin;
 };

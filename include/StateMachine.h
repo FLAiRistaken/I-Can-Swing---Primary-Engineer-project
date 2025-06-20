@@ -38,7 +38,9 @@ public:
         EVENT_DOOR_CLOSED,
         EVENT_EMERGENCY,
         EVENT_ERROR_CLEARED,
-        EVENT_EMERGENCY_RESET
+        EVENT_EMERGENCY_RESET,
+        EVENT_ALERT_PRESSED,
+        EVENT_GIVE_MELODY_PRESSED
     };
 
     enum Speed {

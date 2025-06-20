@@ -87,6 +87,15 @@ void handleButtons() {
         stateMachine.processEvent(StateMachine::EVENT_DOOR_CLOSE_PRESSED);
     }
 
+    if (buttons.wasPressed(ButtonManager::BTN_ALERT)) {
+        Serial.println("DEBUG: Alert button pressed");
+        stateMachine.processEvent(StateMachine::EVENT_ALERT_PRESSED);
+    }
+    if (buttons.wasPressed(ButtonManager::BTN_GIVE)) {
+        Serial.println("DEBUG: Give melody button pressed");
+        stateMachine.processEvent(StateMachine::EVENT_GIVE_MELODY_PRESSED);
+    }
+
     if (buttons.wasPressed(ButtonManager::BTN_EMERGENCY)) {
         stateMachine.processEvent(StateMachine::EVENT_EMERGENCY);
         buzzer.playTone(2000, 1000);  // Emergency alert

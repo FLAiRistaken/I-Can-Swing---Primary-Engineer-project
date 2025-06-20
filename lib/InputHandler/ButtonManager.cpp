@@ -18,15 +18,17 @@ void ButtonManager::begin() {
     _pins[BTN_SPEED_HIGH] = PIN_BTN_SPEED_HIGH;
     _pins[BTN_DOOR_OPEN] = PIN_BTN_DOOR_OPEN;
     _pins[BTN_DOOR_CLOSE] = PIN_BTN_DOOR_CLOSE;
+    _pins[BTN_ALERT] = PIN_BTN_ALERT;
+    _pins[BTN_GIVE] = PIN_BTN_GIVE;
     _pins[BTN_EMERGENCY] = PIN_EMERGENCY_STOP;
 
-    for (int i = 0; i <= BTN_DOOR_CLOSE; i++) {
+    for (int i = 0; i <= BTN_GIVE; i++) {
         _expander->pinMode(_pins[i], INPUT_PULLUP);
     }
     Serial.println("ButtonManager: Expander pins configured.");
     // synchronises the software state with the physical hardware state.
     Serial.println("ButtonManager: Synchronising initial button states...");
-    for (int i = 0; i <= BTN_DOOR_CLOSE; i++) {
+    for (int i = 0; i <= BTN_GIVE; i++) {
         bool initialState = !_expander->digitalRead(_pins[i]); // Read the physical state
         _currentState[i] = initialState;
         _lastState[i] = initialState;
@@ -46,7 +48,7 @@ void ButtonManager::begin() {
 void ButtonManager::update() {
     unsigned long currentTime = millis();
 
-    for (int i = 0; i <= BTN_DOOR_CLOSE; i++) {
+    for (int i = 0; i <= BTN_GIVE; i++) {
 
         // Read the current state (inverted because of INPUT_PULLUP)
         bool reading = !_expander->digitalRead(_pins[i]);

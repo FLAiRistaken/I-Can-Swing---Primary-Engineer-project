@@ -15,6 +15,8 @@ public:
         BTN_SPEED_HIGH,
         BTN_DOOR_OPEN,
         BTN_DOOR_CLOSE,
+        BTN_ALERT,
+        BTN_GIVE,
         BTN_EMERGENCY,
         BTN_COUNT  // Use to define array sizes
     };

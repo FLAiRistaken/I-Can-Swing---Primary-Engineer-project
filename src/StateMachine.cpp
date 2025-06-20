@@ -70,6 +70,20 @@ void StateMachine::processEvent(Event event) {
         return;
     }
 
+    // These events are handled immediately and do not cause state changes.
+    if (event == EVENT_ALERT_PRESSED) {
+        if (_buzzer) {
+            _buzzer->playAlertTone();
+        }
+        return; // Event handled, no further processing needed
+    }
+    if (event == EVENT_GIVE_MELODY_PRESSED) {
+        if (_buzzer) {
+            _buzzer->playGiveMelody();
+        }
+        return; // Event handled, no further processing needed
+    }
+
     // --- Step 2: Update Persistent State Flags (like user presence) ---
     // These flags reflect the ongoing status based on sensor events.
     if (event == EVENT_PRESSURE_ON) {

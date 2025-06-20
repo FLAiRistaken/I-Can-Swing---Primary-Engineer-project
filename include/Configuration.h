@@ -17,10 +17,10 @@ constexpr uint8_t PIN_SWING_MOTOR_IN3 = 6;
 constexpr uint8_t PIN_SWING_MOTOR_IN4 = 7;
 
 // ---- Door Actuators (ON EXPANDER) ----
-constexpr uint8_t PIN_DOOR_ACTUATOR1_FWD = 7;
-constexpr uint8_t PIN_DOOR_ACTUATOR1_REV = 8;
-constexpr uint8_t PIN_DOOR_ACTUATOR2_FWD = 9;
-constexpr uint8_t PIN_DOOR_ACTUATOR2_REV = 10;
+constexpr uint8_t PIN_DOOR_ACTUATOR1_FWD = 9;
+constexpr uint8_t PIN_DOOR_ACTUATOR1_REV = 10;
+constexpr uint8_t PIN_DOOR_ACTUATOR2_FWD = 11;
+constexpr uint8_t PIN_DOOR_ACTUATOR2_REV = 12;
 
 // ---- Buttons ----
 // USING EXPANSION BOARD - set pins corrorlate to the expander pins not the Arduinos
@@ -31,6 +31,8 @@ constexpr uint8_t PIN_BTN_SPEED_MEDIUM = 3;   // D15
 constexpr uint8_t PIN_BTN_SPEED_HIGH   = 4;   // D16
 constexpr uint8_t PIN_BTN_DOOR_OPEN    = 5;
 constexpr uint8_t PIN_BTN_DOOR_CLOSE   = 6;
+constexpr uint8_t PIN_BTN_ALERT        = 7;
+constexpr uint8_t PIN_BTN_GIVE         = 8;
 
 // ---- Sensors ----
 // Pressure sensor (analog only)
