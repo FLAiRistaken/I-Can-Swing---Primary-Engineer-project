@@ -118,17 +118,6 @@ bool RuntimeConfig::validate() const {
             _settings.pressureThreshold < 900);
 }
 
-float RuntimeConfig::getSensorBaseline(const String& sensor) const {
-    if (sensor == "front") {
-        return _settings.frontSensorBaseline;
-    } else if (sensor == "rear") {
-        return _settings.rearSensorBaseline;
-    } else if (sensor == "pressure") {
-        return _settings.pressureBaseline;
-    }
-    return 0.0f; // Default fallback
-}
-
 // Simple setters with validation
 bool RuntimeConfig::setWarningDistance(float value) {
     if (value < 5.0f || value > 200.0f || value <= _settings.frontCriticalDistance) {
@@ -267,14 +256,6 @@ void RuntimeConfig::setWatchdogEnabled(bool enabled) {
     notifyCallbacks("watchdog");
 }
 
-// Usage tracking
-void RuntimeConfig::incrementSwingCycles() {
-    if (_settings.totalSwingCycles < 65535) {
-        _settings.totalSwingCycles++;
-        _isDirty = true;
-    }
-}
-
 // Callback system
 void RuntimeConfig::registerCallback(ConfigChangeCallback callback) {
     if (_callbackCount < MAX_CALLBACKS && callback != nullptr) {
@@ -317,7 +298,6 @@ void RuntimeConfig::loadTestingPreset() {
     setSpeedLow(150);
     setSpeedMedium(300);
     setSpeedHigh(450);
-    setDemoModeEnabled(true);
     save();
 }
 
