@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include "Debug.h"
 #include "Configuration.h"
 #include "ExpanderManager.h"
 #include "RuntimeConfig.h"
@@ -57,53 +58,55 @@ void handleButtons() {
 
     // Map button presses to state machine events
     if (buttons.wasPressed(ButtonManager::BTN_START)) {
-        Serial.println("DEBUG: Start pressed");
+        DEBUG_PRINTLN("Start pressed");
         stateMachine.processEvent(StateMachine::EVENT_START_PRESSED);
     }
 
     if (buttons.wasPressed(ButtonManager::BTN_STOP)) {
+        DEBUG_PRINTLN("Stop pressed");
         stateMachine.processEvent(StateMachine::EVENT_STOP_PRESSED);
     }
 
     if (buttons.wasPressed(ButtonManager::BTN_SPEED_LOW)) {
-        Serial.println("DEBUG: Speed LOW button pressed");
+        DEBUG_PRINTLN("Speed LOW button pressed");
         stateMachine.processEvent(StateMachine::EVENT_SPEED_SET_LOW);
     }
     if (buttons.wasPressed(ButtonManager::BTN_SPEED_MEDIUM)) {
-        Serial.println("DEBUG: Speed MEDIUM button pressed");
+        DEBUG_PRINTLN("Speed MEDIUM button pressed");
         stateMachine.processEvent(StateMachine::EVENT_SPEED_SET_MEDIUM);
     }
     if (buttons.wasPressed(ButtonManager::BTN_SPEED_HIGH)) {
-        Serial.println("DEBUG: Speed HIGH button pressed");
+        DEBUG_PRINTLN("Speed HIGH button pressed");
         stateMachine.processEvent(StateMachine::EVENT_SPEED_SET_HIGH);
     }
 
     if (buttons.wasPressed(ButtonManager::BTN_DOOR_OPEN)) {
-        Serial.println("DEBUG: Door OPEN button pressed");
+        DEBUG_PRINTLN("Door OPEN button pressed");
         stateMachine.processEvent(StateMachine::EVENT_DOOR_OPEN_PRESSED);
     }
     if (buttons.wasPressed(ButtonManager::BTN_DOOR_CLOSE)) {
-        Serial.println("DEBUG: Door CLOSE button pressed");
+        DEBUG_PRINTLN("Door CLOSE button pressed");
         stateMachine.processEvent(StateMachine::EVENT_DOOR_CLOSE_PRESSED);
     }
 
     if (buttons.wasPressed(ButtonManager::BTN_ALERT)) {
-        Serial.println("DEBUG: Alert button pressed");
+        DEBUG_PRINTLN("Alert button pressed");
         stateMachine.processEvent(StateMachine::EVENT_ALERT_PRESSED);
     }
     if (buttons.wasPressed(ButtonManager::BTN_GIVE)) {
-        Serial.println("DEBUG: Give melody button pressed");
+        DEBUG_PRINTLN("Give melody button pressed");
         stateMachine.processEvent(StateMachine::EVENT_GIVE_MELODY_PRESSED);
     }
 
     if (buttons.wasPressed(ButtonManager::BTN_EMERGENCY)) {
+        DEBUG_PRINTLN("Emergency button pressed");
         stateMachine.processEvent(StateMachine::EVENT_EMERGENCY);
         buzzer.playTone(2000, 1000);  // Emergency alert
     }
     // Handle error state clearing
     if (stateMachine.getCurrentState() == StateMachine::STATE_ERROR) {
         if (buttons.wasPressed(ButtonManager::BTN_STOP)) {
-            Serial.println("ERROR state cleared by STOP button");
+            DEBUG_PRINTLN("ERROR state cleared by STOP button");
             stateMachine.processEvent(StateMachine::EVENT_ERROR_CLEARED);
             buzzer.beep(1000, 100); // Confirmation beep
         }
@@ -177,55 +180,55 @@ void setup() {
     Wire.setClock(100000);
     Wire.begin();
 
-    Serial.println("Initialising RuntimeConfig...");
+    DEBUG_PRINTLN("Initialising RuntimeConfig...");
     RuntimeConfig& config = RuntimeConfig::getInstance();
     config.begin();
-    Serial.println("RuntimeConfig initialised");
+    DEBUG_PRINTLN("RuntimeConfig initialised");
 
     // Initialise components
-    Serial.println("Initialising expander...");
+    DEBUG_PRINTLN("Initialising expander...");
     if (!expander.begin()) {
         Serial.println("FATAL: Expander chip not found. Halting.");
         while(1);
     }
-    Serial.println("Expander initialised");
-    Serial.println("Initialising buzzer...");
+    DEBUG_PRINTLN("Expander initialised");
+    DEBUG_PRINTLN("Initialising buzzer...");
     buzzer.begin();
-    Serial.println("Buzzer initialised");
-    Serial.println("Initialising buttons...");
+    DEBUG_PRINTLN("Buzzer initialised");
+    DEBUG_PRINTLN("Initialising buttons...");
     buttons.begin();
-    Serial.println("Buttons initialised");
-    Serial.println("Initialising safetyMonitor...");
+    DEBUG_PRINTLN("Buttons initialised");
+    DEBUG_PRINTLN("Initialising safetyMonitor...");
     safetyMonitor.begin();
-    Serial.println("safetyMonitor initialised");
-    Serial.println("Initialising ultrasonicFront...");
+    DEBUG_PRINTLN("safetyMonitor initialised");
+    DEBUG_PRINTLN("Initialising ultrasonicFront...");
     ultrasonicFront.begin();
-    Serial.println("ultrasonicFront initialised");
+    DEBUG_PRINTLN("ultrasonicFront initialised");
     delay(50);
-    Serial.println("Initialising ultrasonicRear...");
+    DEBUG_PRINTLN("Initialising ultrasonicRear...");
     ultrasonicRear.begin();
-    Serial.println("ultrasonicRear initialised");
+    DEBUG_PRINTLN("ultrasonicRear initialised");
     delay(50);
-    Serial.println("Initialising pressureSensor...");
+    DEBUG_PRINTLN("Initialising pressureSensor...");
     pressureSensor.begin();
-    Serial.println("pressureSensor initialised");
-    Serial.println("Initialising stateMachine...");
+    DEBUG_PRINTLN("pressureSensor initialised");
+    DEBUG_PRINTLN("Initialising stateMachine...");
     stateMachine.begin();
-    Serial.println("stateMachine initialised");
-    Serial.println("Initialising swingMotors...");
+    DEBUG_PRINTLN("stateMachine initialised");
+    DEBUG_PRINTLN("Initialising swingMotors...");
     swingMotors.begin();
-    Serial.println("swingMotors initialised");
-    Serial.println("Initialising doorActuator...");
+    DEBUG_PRINTLN("swingMotors initialised");
+    DEBUG_PRINTLN("Initialising doorActuator...");
     doorActuator.begin();
-    Serial.println("doorActuator initialised");
-    Serial.println("Initialising voiceModule");
+    DEBUG_PRINTLN("doorActuator initialised");
+    DEBUG_PRINTLN("Initialising voiceModule");
     voiceModule.begin();
-    Serial.println("voiceModule initialised...");
-    Serial.println("Initialising WiFi...");
+    DEBUG_PRINTLN("voiceModule initialised...");
+    DEBUG_PRINTLN("Initialising WiFi...");
     if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
-        Serial.println("WiFi connected successfully");
+        DEBUG_PRINTLN("WiFi connected successfully");
         webServer.begin();
-        Serial.println("Web server started");
+        DEBUG_PRINTLN("Web server started");
     } else {
         Serial.println("WiFi connection failed - continuing without web interface");
     }
@@ -267,11 +270,11 @@ void loop() {
         float currentFrontDistance = safetyMonitor.getFrontDistance();
         float currentRearDistance = safetyMonitor.getRearDistance();
 
-        Serial.print("Front: ");
-        Serial.print(currentFrontDistance);
-        Serial.print(" cm, Rear: ");
-        Serial.print(currentRearDistance);
-        Serial.println(" cm");
+        DEBUG_PRINTLN("Front: ");
+        DEBUG_PRINTLN(currentFrontDistance);
+        DEBUG_PRINTLN(" cm, Rear: ");
+        DEBUG_PRINTLN(currentRearDistance);
+        DEBUG_PRINTLN(" cm");
     }
 
     // --- Other timed events (Unchanged) ---

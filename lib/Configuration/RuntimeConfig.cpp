@@ -1,6 +1,7 @@
 // lib/Configuration/RuntimeConfig.cpp
 #include "RuntimeConfig.h"
 #include "Configuration.h"
+#include "Debug.h"
 
 RuntimeConfig& RuntimeConfig::getInstance() {
     static RuntimeConfig instance;
@@ -8,25 +9,25 @@ RuntimeConfig& RuntimeConfig::getInstance() {
 }
 
 void RuntimeConfig::begin() {
-    Serial.println("RuntimeConfig: Initializing...");
+    DEBUG_PRINTLN("RuntimeConfig: Initializing...");
 
     EEPROM.begin();
     _isDirty = false;
     _callbackCount = 0;
 
     if (!loadFromEEPROM() || !isValid()) {
-        Serial.println("RuntimeConfig: Loading defaults");
+        DEBUG_PRINTLN("RuntimeConfig: Loading defaults");
         loadDefaults();
         saveToEEPROM();
     } else {
-        Serial.println("RuntimeConfig: Loaded from EEPROM");
+        DEBUG_PRINTLN("RuntimeConfig: Loaded from EEPROM");
     }
 
-    Serial.print("RuntimeConfig: Version ");
-    Serial.print(_settings.version);
-    Serial.print(", Size: ");
-    Serial.print(sizeof(Settings));
-    Serial.println(" bytes");
+    DEBUG_PRINT("RuntimeConfig: Version ");
+    DEBUG_PRINT(_settings.version);
+    DEBUG_PRINT(", Size: ");
+    DEBUG_PRINT(sizeof(Settings));
+    DEBUG_PRINTLN(" bytes");
 }
 
 void RuntimeConfig::loadDefaults() {
@@ -81,7 +82,7 @@ bool RuntimeConfig::saveToEEPROM() {
     _settings.checksum = calculateChecksum();
     EEPROM.put(EEPROM_ADDRESS, _settings);
     _isDirty = false;
-    Serial.println("RuntimeConfig: Saved to EEPROM");
+    DEBUG_PRINTLN("RuntimeConfig: Saved to EEPROM");
     return true;
 }
 
@@ -129,10 +130,9 @@ float RuntimeConfig::getSensorBaseline(const String& sensor) const {
 }
 
 // Simple setters with validation
-// REPLACE the existing setWarningDistance method with this:
 bool RuntimeConfig::setWarningDistance(float value) {
     if (value < 5.0f || value > 200.0f || value <= _settings.frontCriticalDistance) {
-        Serial.println("RuntimeConfig: Warning distance out of range (5-200cm) or <= critical distance");
+        DEBUG_PRINTLN("RuntimeConfig: Warning distance out of range (5-200cm) or <= critical distance");
         return false;
     }
 
@@ -141,15 +141,15 @@ bool RuntimeConfig::setWarningDistance(float value) {
     _settings.rearWarningDistance = value;
     _isDirty = true;
     notifyCallbacks("warningDistance");
-    Serial.print("RuntimeConfig: Warning distance updated to ");
-    Serial.println(value);
+    DEBUG_PRINT("RuntimeConfig: Warning distance updated to ");
+    DEBUG_PRINTLN(value);
     return true;
 }
 
 
 bool RuntimeConfig::setCriticalDistance(float value) {
     if (value < 1.0f || value > 50.0f || value >= _settings.frontWarningDistance) {
-        Serial.println("RuntimeConfig: Critical distance out of range or >= warning distance");
+        DEBUG_PRINTLN("RuntimeConfig: Critical distance out of range or >= warning distance");
         return false;
     }
 
@@ -158,8 +158,8 @@ bool RuntimeConfig::setCriticalDistance(float value) {
     _settings.rearCriticalDistance = value;
     _isDirty = true;
     notifyCallbacks("criticalDistance");
-    Serial.print("RuntimeConfig: Critical distance updated to ");
-    Serial.println(value);
+    DEBUG_PRINT("RuntimeConfig: Critical distance updated to ");
+    DEBUG_PRINTLN(value);
     return true;
 }
 
@@ -187,58 +187,58 @@ bool RuntimeConfig::setSpeedLow(uint16_t value) {
 
 bool RuntimeConfig::setSpeedMedium(uint16_t value) {
     if (value < 200 || value > 600 || value <= _settings.speedLow || value >= _settings.speedHigh) {
-        Serial.println("RuntimeConfig: Medium speed out of range or invalid order");
+        DEBUG_PRINTLN("RuntimeConfig: Medium speed out of range or invalid order");
         return false;
     }
 
     _settings.speedMedium = value;
     _isDirty = true;
     notifyCallbacks("speedMedium");
-    Serial.print("RuntimeConfig: Medium speed updated to ");
-    Serial.println(value);
+    DEBUG_PRINT("RuntimeConfig: Medium speed updated to ");
+    DEBUG_PRINTLN(value);
     return true;
 }
 
 bool RuntimeConfig::setSpeedHigh(uint16_t value) {
     if (value < 300 || value > 700 || value <= _settings.speedMedium || value > _settings.maxSpeed) {
-        Serial.println("RuntimeConfig: High speed out of range or invalid order");
+        DEBUG_PRINTLN("RuntimeConfig: High speed out of range or invalid order");
         return false;
     }
 
     _settings.speedHigh = value;
     _isDirty = true;
     notifyCallbacks("speedHigh");
-    Serial.print("RuntimeConfig: High speed updated to ");
-    Serial.println(value);
+    DEBUG_PRINT("RuntimeConfig: High speed updated to ");
+    DEBUG_PRINTLN(value);
     return true;
 }
 
 bool RuntimeConfig::setDoorTimeoutMs(unsigned long value) {
     if (value < 1000 || value > 30000) {  // 1-30 seconds
-        Serial.println("RuntimeConfig: Door timeout out of range (1000-30000ms)");
+        DEBUG_PRINTLN("RuntimeConfig: Door timeout out of range (1000-30000ms)");
         return false;
     }
 
     _settings.doorTimeoutMs = value / 1000;  // Store in seconds
     _isDirty = true;
     notifyCallbacks("doorTimeout");
-    Serial.print("RuntimeConfig: Door timeout updated to ");
-    Serial.print(value);
-    Serial.println(" ms");
+    DEBUG_PRINT("RuntimeConfig: Door timeout updated to ");
+    DEBUG_PRINT(value);
+    DEBUG_PRINTLN(" ms");
     return true;
 }
 
 bool RuntimeConfig::setBuzzerVolume(uint8_t value) {
     if (value > 10) {
-        Serial.println("RuntimeConfig: Buzzer volume out of range (0-10)");
+        DEBUG_PRINTLN("RuntimeConfig: Buzzer volume out of range (0-10)");
         return false;
     }
 
     _settings.buzzerVolume = value;
     _isDirty = true;
     notifyCallbacks("buzzerVolume");
-    Serial.print("RuntimeConfig: Buzzer volume updated to ");
-    Serial.println(value);
+    DEBUG_PRINT("RuntimeConfig: Buzzer volume updated to ");
+    DEBUG_PRINTLN(value);
     return true;
 }
 
@@ -267,16 +267,6 @@ void RuntimeConfig::setWatchdogEnabled(bool enabled) {
     notifyCallbacks("watchdog");
 }
 
-void RuntimeConfig::setCalibrationValid(bool valid) {
-    setFlag(FLAG_CALIBRATION_VALID, valid);
-    notifyCallbacks("calibrationValid");
-}
-
-void RuntimeConfig::setDemoModeEnabled(bool enabled) {
-    setFlag(FLAG_DEMO_MODE, enabled);
-    notifyCallbacks("demoMode");
-}
-
 // Usage tracking
 void RuntimeConfig::incrementSwingCycles() {
     if (_settings.totalSwingCycles < 65535) {
@@ -303,7 +293,7 @@ void RuntimeConfig::notifyCallbacks(const char* key) {
 // Add these demo implementation methods at the end of RuntimeConfig.cpp:
 
 void RuntimeConfig::loadSafePreset() {
-    Serial.println("RuntimeConfig: Loading safe preset");
+    DEBUG_PRINTLN("RuntimeConfig: Loading safe preset");
     setWarningDistance(50.0f);
     setCriticalDistance(15.0f);
     setSpeedLow(200);
@@ -315,13 +305,13 @@ void RuntimeConfig::loadSafePreset() {
 }
 
 void RuntimeConfig::loadDefaultPreset() {
-    Serial.println("RuntimeConfig: Loading default preset");
+    DEBUG_PRINTLN("RuntimeConfig: Loading default preset");
     loadDefaults(); // Use existing defaults
     save();
 }
 
 void RuntimeConfig::loadTestingPreset() {
-    Serial.println("RuntimeConfig: Loading testing preset");
+    DEBUG_PRINTLN("RuntimeConfig: Loading testing preset");
     setWarningDistance(100.0f);
     setCriticalDistance(20.0f);
     setSpeedLow(150);
@@ -331,155 +321,8 @@ void RuntimeConfig::loadTestingPreset() {
     save();
 }
 
-void RuntimeConfig::setDemoMode(DemoMode mode) {
-    if (mode == DEMO_NONE) {
-        stopDemo();
-        return;
-    }
-
-    // Backup current configuration before demo
-    if (!_demoConfigBackedUp) {
-        _originalConfig.speed = _settings.speedMedium;
-        _originalConfig.warningDistance = _settings.frontWarningDistance;
-        _originalConfig.criticalDistance = _settings.frontCriticalDistance;
-        _originalConfig.enableVoice = isVoiceRecognitionEnabled();
-        _originalConfig.enableSafety = isAudioFeedbackEnabled();
-        _demoConfigBackedUp = true;
-    }
-
-    _currentDemoMode = mode;
-    _demoStartTime = millis();
-    setDemoModeEnabled(true);
-
-    // Apply demo-specific configuration
-    DemoConfig config = getDemoConfig(mode);
-    setSpeedMedium(config.speed);
-    setWarningDistance(config.warningDistance);
-    setCriticalDistance(config.criticalDistance);
-    setVoiceRecognitionEnabled(config.enableVoice);
-    setAudioFeedbackEnabled(config.enableSafety);
-
-    Serial.print("RuntimeConfig: Demo mode set to ");
-    Serial.println(mode);
-
-    notifyCallbacks("demoMode");
-}
-
-RuntimeConfig::DemoMode RuntimeConfig::getCurrentDemoMode() const {
-    return _currentDemoMode;
-}
-
-RuntimeConfig::DemoConfig RuntimeConfig::getDemoConfig(DemoMode mode) const {
-    DemoConfig config = {};
-
-    switch(mode) {
-        case DEMO_GENTLE:
-            config.speed = 300;
-            config.warningDistance = 50.0f;
-            config.criticalDistance = 15.0f;
-            config.duration = 120; // 2 minutes
-            config.enableVoice = true;
-            config.enableSafety = true;
-            config.description = "Gentle introduction with safe settings";
-            break;
-
-        case DEMO_FULL_FEATURE:
-            config.speed = 600;
-            config.warningDistance = 30.0f;
-            config.criticalDistance = 10.0f;
-            config.duration = 300; // 5 minutes
-            config.enableVoice = true;
-            config.enableSafety = true;
-            config.description = "Complete system showcase with all features";
-            break;
-
-        case DEMO_SAFETY:
-            config.speed = 400;
-            config.warningDistance = 40.0f;
-            config.criticalDistance = 12.0f;
-            config.duration = 180; // 3 minutes
-            config.enableVoice = false;
-            config.enableSafety = true;
-            config.description = "Safety system demonstrations and emergency scenarios";
-            break;
-
-        case DEMO_VOICE_CONTROL:
-            config.speed = 450;
-            config.warningDistance = 35.0f;
-            config.criticalDistance = 10.0f;
-            config.duration = 240; // 4 minutes
-            config.enableVoice = true;
-            config.enableSafety = true;
-            config.description = "Voice command showcase with audio feedback";
-            break;
-
-        default:
-            config.description = "No demo selected";
-            break;
-    }
-
-    return config;
-}
-
-bool RuntimeConfig::isDemoActive() const {
-    return _currentDemoMode != DEMO_NONE;
-}
-
-void RuntimeConfig::stopDemo() {
-    if (_currentDemoMode == DEMO_NONE) return;
-
-    Serial.println("RuntimeConfig: Stopping demo mode");
-
-    // Restore original configuration
-    if (_demoConfigBackedUp) {
-        setSpeedMedium(_originalConfig.speed);
-        setWarningDistance(_originalConfig.warningDistance);
-        setCriticalDistance(_originalConfig.criticalDistance);
-        setVoiceRecognitionEnabled(_originalConfig.enableVoice);
-        setAudioFeedbackEnabled(_originalConfig.enableSafety);
-        _demoConfigBackedUp = false;
-    }
-
-    _currentDemoMode = DEMO_NONE;
-    _demoStartTime = 0;
-    setDemoModeEnabled(false);
-
-    notifyCallbacks("demoMode");
-    save();
-}
-
-uint16_t RuntimeConfig::getDemoRunCount() const {
-    return _settings.reserved1 & 0xFFFF; // Use lower 16 bits of reserved1
-}
-
-void RuntimeConfig::incrementDemoRunCount() {
-    uint16_t count = getDemoRunCount();
-    if (count < 65535) {
-        _settings.reserved1 = (_settings.reserved1 & 0xFFFF0000) | (count + 1);
-        _isDirty = true;
-    }
-}
-
-
-// JSON export (simplified for Arduino)
-String RuntimeConfig::exportToJson() const {
-    String json = "{";
-    json += "\"frontWarning\":" + String(_settings.frontWarningDistance) + ",";
-    json += "\"frontCritical\":" + String(_settings.frontCriticalDistance) + ",";
-    json += "\"rearWarning\":" + String(_settings.rearWarningDistance) + ",";
-    json += "\"rearCritical\":" + String(_settings.rearCriticalDistance) + ",";
-    json += "\"pressureThreshold\":" + String(_settings.pressureThreshold) + ",";
-    json += "\"speedLow\":" + String(_settings.speedLow) + ",";
-    json += "\"speedMedium\":" + String(_settings.speedMedium) + ",";
-    json += "\"speedHigh\":" + String(_settings.speedHigh) + ",";
-    json += "\"audioEnabled\":" + String(isAudioFeedbackEnabled() ? "true" : "false") + ",";
-    json += "\"voiceEnabled\":" + String(isVoiceRecognitionEnabled() ? "true" : "false");
-    json += "}";
-    return json;
-}
-
 void RuntimeConfig::factoryReset() {
-    Serial.println("RuntimeConfig: Factory reset");
+    DEBUG_PRINTLN("RuntimeConfig: Factory reset");
     loadDefaults();
     saveToEEPROM();
 }

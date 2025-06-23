@@ -15,7 +15,7 @@ StateMachine::StateMachine()
       _buzzer(nullptr),
       _swingMotors(nullptr),
       _stateEntryTime(0),
-      _doorTimeoutMs(10000),
+      _doorTimeoutMs(RuntimeConfig::getInstance().getDoorTimeoutMs()),
       _timeoutEnabled(false)
 {}
 
@@ -25,18 +25,18 @@ void StateMachine::begin() {
     _isUserPresent = false;
     _stateEntryTime = millis();
     _timeoutEnabled = false;
-    _doorTimeoutMs = 10000; // 10 seconds default
+    _doorTimeoutMs = RuntimeConfig::getInstance().getDoorTimeoutMs();
 
     // Check if components are set
     if (!_buzzer) {
-        Serial.println("StateMachine: Warning - Buzzer not set");
+        DEBUG_PRINTLN("StateMachine: Warning - Buzzer not set");
     }
 
     if (!_doorActuator) {
-        Serial.println("StateMachine: Warning - Door actuator not set");
+        DEBUG_PRINTLN("StateMachine: Warning - Door actuator not set");
     }
 
-    Serial.println("StateMachine: Initialized");
+    DEBUG_PRINTLN("StateMachine: Initialized");
 }
 
 void StateMachine::processEvent(Event event) {
@@ -260,16 +260,16 @@ void StateMachine::transition(State newState) {
 }
 
 void StateMachine::enterState(State state) {
-    Serial.print("StateMachine: Entering state: ");
-    Serial.println(getStateString());
+    DEBUG_PRINT("StateMachine: Entering state: ");
+    DEBUG_PRINTLN(getStateString());
 
     // Record time for timeout handling
     _stateEntryTime = millis();
 
     switch (state) {
         case STATE_SWINGING:
-            Serial.print("StateMachine: Starting swing motion at speed: ");
-            Serial.println(getSpeedString());
+            DEBUG_PRINT("StateMachine: Starting swing motion at speed: ");
+            DEBUG_PRINTLN(getSpeedString());
             if (_swingMotors) {
                 RuntimeConfig& config = RuntimeConfig::getInstance();
                 uint16_t speedValue = config.getSpeedLow(); // Always start at low
@@ -286,7 +286,7 @@ void StateMachine::enterState(State state) {
             break;
 
         case STATE_DOOR_OPENING:
-            Serial.println("StateMachine: Initiating door opening sequence");
+            DEBUG_PRINTLN("StateMachine: Initiating door opening sequence");
             // Direct control of door actuator
             if (_doorActuator) {
                 _doorActuator->openDoor();
@@ -299,7 +299,7 @@ void StateMachine::enterState(State state) {
             break;
 
         case STATE_DOOR_CLOSING:
-            Serial.println("StateMachine: Initiating door closing sequence");
+            DEBUG_PRINTLN("StateMachine: Initiating door closing sequence");
             // Direct control of door actuator
             if (_doorActuator) {
                 _doorActuator->closeDoor();
@@ -351,12 +351,12 @@ void StateMachine::enterState(State state) {
 
 // StateMachine.cpp - Update exitState
 void StateMachine::exitState(State state) {
-    Serial.print("StateMachine: Exiting state: ");
-    Serial.println(getStateString());
+    DEBUG_PRINT("StateMachine: Exiting state: ");
+    DEBUG_PRINTLN(getStateString());
 
     switch (state) {
         case STATE_SWINGING:
-            Serial.println("StateMachine: Exiting SWINGING state, ensuring motors are stopped.");
+            DEBUG_PRINTLN("StateMachine: Exiting SWINGING state, ensuring motors are stopped.");
             if (_swingMotors) {
                 _swingMotors->stopSwinging();
             }
@@ -370,12 +370,12 @@ void StateMachine::exitState(State state) {
                 _timeoutEnabled = false;
             }
             _timeoutEnabled = false;
-            Serial.println("StateMachine: Stopping door movement");
+            DEBUG_PRINTLN("StateMachine: Stopping door movement");
             break;
 
         case STATE_ERROR:
         case STATE_EMERGENCY:
-            Serial.println("StateMachine: Exiting fault state");
+            DEBUG_PRINTLN("StateMachine: Exiting fault state");
             // Audio feedback - recovery beep
             if (_buzzer) {
                 _buzzer->beep(1000, 100);
@@ -388,9 +388,9 @@ void StateMachine::exitState(State state) {
 
 void StateMachine::setDoorTimeout(unsigned long timeoutMs) {
     _doorTimeoutMs = timeoutMs;
-    Serial.print("StateMachine: Door timeout set to ");
-    Serial.print(_doorTimeoutMs);
-    Serial.println(" ms");
+    DEBUG_PRINT("StateMachine: Door timeout set to ");
+    DEBUG_PRINT(_doorTimeoutMs);
+    DEBUG_PRINTLN(" ms");
 }
 
 void StateMachine::update() {
@@ -398,7 +398,7 @@ void StateMachine::update() {
     if (_timeoutEnabled) {
         unsigned long currentTime = millis();
         if (currentTime - _stateEntryTime > _doorTimeoutMs) {
-            Serial.println("StateMachine: Door operation timed out!");
+            DEBUG_PRINTLN("StateMachine: Door operation timed out!");
 
             // Handle timeout based on current state
             if (_currentState == STATE_DOOR_OPENING || _currentState == STATE_DOOR_CLOSING) {

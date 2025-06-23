@@ -52,9 +52,6 @@ public:
     static const uint8_t FLAG_AUDIO_FEEDBACK = 0x01;
     static const uint8_t FLAG_VOICE_RECOGNITION = 0x02;
     static const uint8_t FLAG_WATCHDOG_ENABLED = 0x04;
-    static const uint8_t FLAG_CALIBRATION_VALID = 0x08;
-    static const uint8_t FLAG_DEMO_MODE = 0x10;
-    static const uint8_t FLAG_SAFETY_OVERRIDE = 0x20;
 
     // Simple callback type (no std::function)
     typedef void (*ConfigChangeCallback)(const char* key);
@@ -86,8 +83,6 @@ public:
     bool isAudioFeedbackEnabled() const { return _settings.flags & FLAG_AUDIO_FEEDBACK; }
     bool isVoiceRecognitionEnabled() const { return _settings.flags & FLAG_VOICE_RECOGNITION; }
     bool isWatchdogEnabled() const { return _settings.flags & FLAG_WATCHDOG_ENABLED; }
-    bool isCalibrationValid() const { return _settings.flags & FLAG_CALIBRATION_VALID; }
-    bool isDemoModeEnabled() const { return _settings.flags & FLAG_DEMO_MODE; }
 
     // Simple setters with validation
     bool setWarningDistance(float value);
@@ -103,55 +98,10 @@ public:
     void setAudioFeedbackEnabled(bool enabled);
     void setVoiceRecognitionEnabled(bool enabled);
     void setWatchdogEnabled(bool enabled);
-    void setCalibrationValid(bool valid);
-    void setDemoModeEnabled(bool enabled);
-
-    // Usage tracking
-    void incrementSwingCycles();
-    void incrementDoorOperations();
-    void incrementEmergencyStops();
-    void incrementOperationHours();
-
-    // Demo preset system
-    enum DemoMode {
-        DEMO_GENTLE = 0,
-        DEMO_FULL_FEATURE = 1,
-        DEMO_SAFETY = 2,
-        DEMO_VOICE_CONTROL = 3,
-        DEMO_NONE = 4
-    };
-
-    struct DemoConfig {
-        uint16_t speed;
-        float warningDistance;
-        float criticalDistance;
-        uint16_t duration;       // seconds
-        bool enableVoice;
-        bool enableSafety;
-        String description;
-    };
-
-    // Demo management methods
-    void setDemoMode(DemoMode mode);
-    DemoMode getCurrentDemoMode() const;
-    DemoConfig getDemoConfig(DemoMode mode) const;
-    bool isDemoActive() const;
-    void stopDemo();
-
-    // Demo statistics
-    uint16_t getDemoRunCount() const;
-    void incrementDemoRunCount();
-
-
-    // Calibration support
-    bool updateCalibrationData(const String& sensor, float baseline);
-    float getSensorBaseline(const String& sensor) const;
 
     // Simple callback system (max 3 callbacks)
     void registerCallback(ConfigChangeCallback callback);
 
-    // JSON export (simplified)
-    String exportToJson() const;
 
     // Configuration presets
     void loadSafePreset();      // Conservative settings
@@ -159,12 +109,9 @@ public:
     void loadTestingPreset();   // For development/testing
 
 private:
-    RuntimeConfig() : _isDirty(false), _callbackCount(0),
-                     _currentDemoMode(DEMO_NONE), _demoStartTime(0),
-                     _demoConfigBackedUp(false) {
+    RuntimeConfig() : _isDirty(false), _callbackCount(0) {
         // Initialize settings to zero
         memset(&_settings, 0, sizeof(Settings));
-        memset(&_originalConfig, 0, sizeof(DemoConfig));
 
         // Initialize callback array to null pointers
         for (uint8_t i = 0; i < MAX_CALLBACKS; i++) {
@@ -174,11 +121,6 @@ private:
 
     Settings _settings;
     bool _isDirty;
-
-    DemoMode _currentDemoMode;
-    unsigned long _demoStartTime;
-    DemoConfig _originalConfig;  // Store original settings
-    bool _demoConfigBackedUp;
 
     // Simple callback system
     static const uint8_t MAX_CALLBACKS = 3;
