@@ -1,5 +1,6 @@
 // lib/Sensors/VoiceRecognition.cpp
 #include "VoiceRecognition.h"
+#include "Debug.h"
 
 VoiceRecognition::VoiceRecognition(uint8_t rxPin, uint8_t txPin, StateMachine* stateMachine)
     : myVR(rxPin, txPin), _stateMachine(stateMachine) {
@@ -13,16 +14,16 @@ void VoiceRecognition::begin() {
     // Initialize VR module
     myVR.begin(9600);
 
-    Serial.println("VoiceRecognition: Initializing...");
+    DEBUG_PRINTLN("VoiceRecognition: Initializing...");
 
     // Load voice commands
     if (myVR.load(records, CMD_COUNT)) {
-        Serial.println("VoiceRecognition: Voice commands loaded successfully");
+        DEBUG_PRINTLN("VoiceRecognition: Voice commands loaded successfully");
     } else {
         Serial.println("VoiceRecognition: Error loading voice commands");
     }
 
-    Serial.println("VoiceRecognition: Ready");
+    DEBUG_PRINTLN("VoiceRecognition: Ready");
 }
 
 void VoiceRecognition::update() {
@@ -32,8 +33,8 @@ void VoiceRecognition::update() {
     if (ret > 0) {
         // Command recognized
         int commandId = buf[1]; // Get command ID
-        Serial.print("VoiceRecognition: Command recognized: ");
-        Serial.println(commandId);
+        DEBUG_PRINT("VoiceRecognition: Command recognized: ");
+        DEBUG_PRINTLN(commandId);
 
         handleVoiceCommand(commandId);
     }
