@@ -1,4 +1,5 @@
 #include "ExpanderManager.h"
+#include "Debug.h"
 #include <Arduino.h>
 
 ExpanderManager::ExpanderManager() {
@@ -6,12 +7,12 @@ ExpanderManager::ExpanderManager() {
 }
 
 bool ExpanderManager::begin() {
-    Serial.println("ExpanderManager: Initializing MCP23017...");
+    DEBUG_PRINTLN("ExpanderManager: Initializing MCP23017...");
     if (!_mcp.begin_I2C()) {
         Serial.println("ExpanderManager: ERROR - MCP23017 not found!");
         return false;
     }
-    Serial.println("ExpanderManager: MCP23017 found successfully.");
+    DEBUG_PRINTLN("ExpanderManager: MCP23017 found successfully.");
     return true;
 }
 
