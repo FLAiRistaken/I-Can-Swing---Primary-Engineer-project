@@ -1,14 +1,15 @@
 // lib/Sensors/PressureSensor.cpp
 #include "PressureSensor.h"
+#include "Debug.h"
 
 PressureSensor::PressureSensor(uint8_t analogPin, int threshold, const char* name)
     : _analogPin(analogPin), _threshold(threshold), _name(name), _lastRawValue(0) {}
 
 void PressureSensor::begin() {
     pinMode(_analogPin, INPUT);
-    Serial.print("Pressure Sensor '");
-    Serial.print(_name);
-    Serial.println("' initialized");
+    DEBUG_PRINT("Pressure Sensor '");
+    DEBUG_PRINT(_name);
+    DEBUG_PRINTLN("' initialized");
 }
 
 int PressureSensor::readRawValue() {

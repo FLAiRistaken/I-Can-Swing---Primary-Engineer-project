@@ -1,10 +1,11 @@
 // lib/Safety/SafetyMonitor.cpp
 #include "SafetyMonitor.h"
+#include "Debug.h"
 #include <RuntimeConfig.h>
 
 void onConfigChange(const char* key) {
-    Serial.print("SafetyMonitor: Config changed - ");
-    Serial.println(key);
+    DEBUG_PRINT("SafetyMonitor: Config changed - ");
+    DEBUG_PRINTLN(key);
 }
 
 SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
@@ -36,7 +37,7 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _lastUserPresentState(false) {}
 
 void SafetyMonitor::begin() {
-    Serial.println("SafetyMonitor: Initialized");
+    DEBUG_PRINTLN("SafetyMonitor: Initialized");
 
     // Register callback for config changes
     RuntimeConfig& config = RuntimeConfig::getInstance();
@@ -159,7 +160,7 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
 
         // If more than 5 changes in 3 seconds, consider it unstable
         if (rapidChanges > 5) {
-            Serial.println("SafetyMonitor: Multiple rapid obstacle detections!");
+            DEBUG_PRINTLN("SafetyMonitor: Multiple rapid obstacle detections!");
             return true;
         }
     }
@@ -197,12 +198,12 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
 
         // Filter expected ground readings based on swing phase
         if (isReadingExpectedGround(_frontDistance, lastFrontDistance)) {
-            Serial.println("SafetyMonitor: Filtering expected ground detection on front sensor");
+            DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on front sensor");
             _frontDistance = 400.0f; // Set to max range (filtered)
         }
 
         if (isReadingExpectedGround(_rearDistance, lastRearDistance)) {
-            Serial.println("SafetyMonitor: Filtering expected ground detection on rear sensor");
+            DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on rear sensor");
             _rearDistance = 400.0f; // Set to max range (filtered)
         }
     }
@@ -315,14 +316,6 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkSystemHealth() {
         return STATUS_EMERGENCY;
     }
 
-    // Example of a system health check:
-    if (currentTime - systemStartTime > 3600000) { // 1 hour
-        // Implement periodic system check after 1 hour of operation
-        // This would check for system fatigue or overheating
-        Serial.println("SafetyMonitor: Performing 1-hour system health check");
-        systemStartTime = currentTime; // Reset for next hour
-    }
-
     return STATUS_OK;
 }
 
@@ -349,7 +342,7 @@ void SafetyMonitor::handleSafetyStatus(SafetyStatus newStatus) {
 
         case STATUS_WARNING:
             // Warnings don't change state currently
-            Serial.println("SafetyMonitor: Warning condition - no state change");
+            DEBUG_PRINTLN("SafetyMonitor: Warning condition - no state change");
             break;
 
         case STATUS_OK:
@@ -365,7 +358,7 @@ void SafetyMonitor::updateMotorStatus(bool isRunning, uint16_t currentSpeed) {
     // Check for stall condition (motor active but speed not changing)
     if (isRunning && _previousSpeed > 0 && currentSpeed == 0) {
         _stallCount++;
-        Serial.println("SafetyMonitor: Possible motor stall detected");
+        DEBUG_PRINTLN("SafetyMonitor: Possible motor stall detected");
     } else {
         // Reset stall counter if speed is changing properly
         if (_stallCount > 0 && currentSpeed > 0) {

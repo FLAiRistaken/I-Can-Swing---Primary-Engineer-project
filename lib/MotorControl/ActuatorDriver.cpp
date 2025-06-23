@@ -1,6 +1,7 @@
 // lib/MotorControl/ActuatorDriver.cpp
 #include "ActuatorDriver.h"
 #include "ExpanderManager.h"
+#include "Debug.h"
 
 ActuatorDriver::ActuatorDriver(uint8_t forwardPin, uint8_t reversePin, ExpanderManager* expander)
     : _forwardPin(forwardPin), _reversePin(reversePin), _expander(expander),
@@ -10,28 +11,28 @@ void ActuatorDriver::begin() {
     _expander->pinMode(_forwardPin, OUTPUT);
     _expander->pinMode(_reversePin, OUTPUT);
     stop();
-    Serial.println("ActuatorDriver: Initialized");
+    DEBUG_PRINTLN("ActuatorDriver: Initialized");
 }
 
 void ActuatorDriver::extend() {
     _expander->digitalWrite(_forwardPin, HIGH);
     _expander->digitalWrite(_reversePin, LOW);
     _currentDirection = DIRECTION_EXTEND;
-    Serial.println("ActuatorDriver: Extending");
+    DEBUG_PRINTLN("ActuatorDriver: Extending");
 }
 
 void ActuatorDriver::retract() {
     _expander->digitalWrite(_forwardPin, LOW);
     _expander->digitalWrite(_reversePin, HIGH);
     _currentDirection = DIRECTION_RETRACT;
-    Serial.println("ActuatorDriver: Retracting");
+    DEBUG_PRINTLN("ActuatorDriver: Retracting");
 }
 
 void ActuatorDriver::stop() {
     _expander->digitalWrite(_forwardPin, LOW);
     _expander->digitalWrite(_reversePin, LOW);
     _currentDirection = DIRECTION_STOP;
-    Serial.println("ActuatorDriver: Stopped");
+    DEBUG_PRINTLN("ActuatorDriver: Stopped");
 }
 
 ActuatorDriver::Direction ActuatorDriver::getCurrentDirection() const {
@@ -43,9 +44,9 @@ void ActuatorDriver::startExtend(unsigned long timeMs) {
     _startTime = millis();
     _operationDuration = timeMs;
     _timedOperation = true;
-    Serial.print("ActuatorDriver: Timed extend started for ");
-    Serial.print(timeMs);
-    Serial.println(" ms");
+    DEBUG_PRINT("ActuatorDriver: Timed extend started for ");
+    DEBUG_PRINT(timeMs);
+    DEBUG_PRINTLN(" ms");
 }
 
 void ActuatorDriver::startRetract(unsigned long timeMs) {
@@ -53,9 +54,9 @@ void ActuatorDriver::startRetract(unsigned long timeMs) {
     _startTime = millis();
     _operationDuration = timeMs;
     _timedOperation = true;
-    Serial.print("ActuatorDriver: Timed retract started for ");
-    Serial.print(timeMs);
-    Serial.println(" ms");
+    DEBUG_PRINT("ActuatorDriver: Timed retract started for ");
+    DEBUG_PRINT(timeMs);
+    DEBUG_PRINTLN(" ms");
 }
 
 void ActuatorDriver::update() {

@@ -1,4 +1,6 @@
 #include "DoorActuatorManager.h"
+#include "RuntimeConfig.h"
+#include "Debug.h"
 
 // Constructor initializes both internal ActuatorDriver instances
 DoorActuatorManager::DoorActuatorManager(uint8_t act1FwdPin, uint8_t act1RevPin,
@@ -9,21 +11,21 @@ DoorActuatorManager::DoorActuatorManager(uint8_t act1FwdPin, uint8_t act1RevPin,
       _stateMachine(stateMachine),
       _currentDoorState(DOOR_STOPPED),
       _operationStartTime(0),
-      _operationTimeoutMs(17000) // Default timeout for full travel
+      _operationTimeoutMs(RuntimeConfig::getInstance().getDoorTimeoutMs()) // Default timeout for full travel
 {}
 
 void DoorActuatorManager::begin() {
     _actuator1.begin();
     _actuator2.begin();
-    Serial.println("DoorActuatorManager: Initialized both actuators.");
+    DEBUG_PRINTLN("DoorActuatorManager: Initialized both actuators.");
 }
 
 void DoorActuatorManager::openDoor() {
     if (_currentDoorState != DOOR_STOPPED) {
-        Serial.println("DoorActuatorManager: Door already in motion.");
+        DEBUG_PRINTLN("DoorActuatorManager: Door already in motion.");
         return;
     }
-    Serial.println("DoorActuatorManager: Opening door...");
+    DEBUG_PRINTLN("DoorActuatorManager: Opening door...");
     _actuator1.startExtend(_operationTimeoutMs); // Start timed operation
     _actuator2.startExtend(_operationTimeoutMs); // Start timed operation
     _currentDoorState = DOOR_OPENING;
@@ -32,10 +34,10 @@ void DoorActuatorManager::openDoor() {
 
 void DoorActuatorManager::closeDoor() {
     if (_currentDoorState != DOOR_STOPPED) {
-        Serial.println("DoorActuatorManager: Door already in motion.");
+        DEBUG_PRINTLN("DoorActuatorManager: Door already in motion.");
         return;
     }
-    Serial.println("DoorActuatorManager: Closing door...");
+    DEBUG_PRINTLN("DoorActuatorManager: Closing door...");
     _actuator1.startRetract(_operationTimeoutMs); // Start timed operation
     _actuator2.startRetract(_operationTimeoutMs); // Start timed operation
     _currentDoorState = DOOR_CLOSING;
@@ -43,7 +45,7 @@ void DoorActuatorManager::closeDoor() {
 }
 
 void DoorActuatorManager::stopDoor() {
-    Serial.println("DoorActuatorManager: Stopping door motion.");
+    DEBUG_PRINTLN("DoorActuatorManager: Stopping door motion.");
     _actuator1.stop();
     _actuator2.stop();
     _currentDoorState = DOOR_STOPPED;
@@ -57,7 +59,7 @@ void DoorActuatorManager::update() {
     if (_currentDoorState == DOOR_OPENING || _currentDoorState == DOOR_CLOSING) {
         // Check if both actuators have completed their timed operation
         if (!_actuator1.isMoving() && !_actuator2.isMoving()) {
-            Serial.println("DoorActuatorManager: Both actuators stopped.");
+            DEBUG_PRINTLN("DoorActuatorManager: Both actuators stopped.");
             DoorState finishedState = _currentDoorState; // Capture before stopping
             _currentDoorState = DOOR_STOPPED; // Set manager's state to stopped
 

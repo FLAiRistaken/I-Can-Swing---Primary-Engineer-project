@@ -1,5 +1,7 @@
 // lib/MotorControl/StepperDriver.cpp
 #include "StepperDriver.h"
+#include "RuntimeConfig.h"
+#include "Debug.h"
 
 StepperDriver::StepperDriver(uint8_t in1Pin, uint8_t in2Pin, uint8_t in3Pin, uint8_t in4Pin, int stepsPerRev)
     : _stepper(stepsPerRev, in1Pin, in2Pin, in3Pin, in4Pin),
@@ -35,19 +37,19 @@ void StepperDriver::begin() {
     // Configure the stepper speed
     _stepper.setSpeed(_speed);
 
-    Serial.print("StepperDriver: Initialized with pins ");
-    Serial.print(_in1Pin); Serial.print(", ");
-    Serial.print(_in2Pin); Serial.print(", ");
-    Serial.print(_in3Pin); Serial.print(", ");
-    Serial.println(_in4Pin);
+    DEBUG_PRINT("StepperDriver: Initialized with pins ");
+    DEBUG_PRINT(_in1Pin); DEBUG_PRINT(", ");
+    DEBUG_PRINT(_in2Pin); DEBUG_PRINT(", ");
+    DEBUG_PRINT(_in3Pin); DEBUG_PRINT(", ");
+    DEBUG_PRINTLN(_in4Pin);
 }
 
 void StepperDriver::setSpeed(uint16_t rpm) {
     _speed = rpm;
     _stepper.setSpeed(_speed);
-    Serial.print("StepperDriver: Speed set to ");
-    Serial.print(_speed);
-    Serial.println(" RPM");
+    DEBUG_PRINT("StepperDriver: Speed set to ");
+    DEBUG_PRINT(_speed);
+    DEBUG_PRINTLN(" RPM");
 }
 
 void StepperDriver::setDirection(bool clockwise) {
@@ -56,7 +58,7 @@ void StepperDriver::setDirection(bool clockwise) {
 
 void StepperDriver::enable() {
     _enabled = true;
-    Serial.println("StepperDriver: Enabled");
+    DEBUG_PRINTLN("StepperDriver: Enabled");
 }
 
 void StepperDriver::disable() {
@@ -71,8 +73,8 @@ void StepperDriver::disable() {
 void StepperDriver::startContinuous() {
     if (_enabled && !_swinging && !_emergencyHalted) {
         _running = true;
-        Serial.print("StepperDriver: Started continuous rotation ");
-        Serial.println(_clockwise ? "clockwise" : "counter-clockwise");
+        DEBUG_PRINT("StepperDriver: Started continuous rotation ");
+        DEBUG_PRINTLN(_clockwise ? "clockwise" : "counter-clockwise");
     }
 }
 
@@ -107,7 +109,7 @@ void StepperDriver::startSwinging() {
     _stepper.step(stepsToMove);
     updatePosition(stepsToMove);
 
-    Serial.println("StepperDriver: Started swinging motion");
+    DEBUG_PRINTLN("StepperDriver: Started swinging motion");
 }
 
 void StepperDriver::stopSwinging() {
@@ -145,7 +147,7 @@ void StepperDriver::returnHome() {
         _swinging = false;
         _running = false;
         _returningHome = true;
-        Serial.println("StepperDriver: Returning to home position");
+        DEBUG_PRINTLN("StepperDriver: Returning to home position");
     }
 }
 
@@ -178,7 +180,7 @@ void StepperDriver::update() {
 
             if (_currentPosition == 0) {
                 _returningHome = false;
-                Serial.println("StepperDriver: Reached home position");
+                DEBUG_PRINTLN("StepperDriver: Reached home position");
             }
         } else {
             _returningHome = false;
