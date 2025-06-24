@@ -15,6 +15,8 @@ public:
     void setSpeed(uint16_t rpm);
     void setDirection(bool clockwise);
 
+    void setSwingSpeed(uint8_t speedLevel); // Set swing speed (1=low, 2=medium, 3=high)
+
     // Enable/disable control
     void enable();
     void disable();
@@ -62,6 +64,22 @@ private:
     int _currentPosition;      // Current position relative to center (in steps)
     bool _returningHome;       // Flag for home return operation
     bool _emergencyHalted;     // Flag for emergency stop state
+
+    // Non-blocking swing physics
+    unsigned long _lastStepTime;          // Last step timestamp
+    unsigned long _swingStartTime;        // Swing start timestamp
+    unsigned long _smoothStopStartTime;   // Smooth stop start timestamp
+    uint16_t _stepInterval;               // Current step interval (ms)
+    uint8_t _stepsPerInterval;            // Steps per interval (speed control)
+    int _maxSwingSteps;                   // Maximum steps for swing angle
+    float _currentSwingPhase;             // Current position in swing cycle (0.0-1.0)
+    bool _smoothStopping;                 // Flag for smooth stop in progress
+
+    // Physics calculation methods
+    float calculateSwingProgress(unsigned long currentTime);
+    int calculateTargetPosition(float progress);
+    float calculateSinePosition(float progress);
+    void updateSwingPhysics();
 
     // Helper methods
     void setPinsLow();         // Set all pins low (power saving)

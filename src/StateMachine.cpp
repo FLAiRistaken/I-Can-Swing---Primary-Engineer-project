@@ -148,50 +148,47 @@ void StateMachine::processEvent(Event event) {
                 if (_currentSpeed < SPEED_HIGH) {
                     _currentSpeed = static_cast<Speed>(_currentSpeed + 1);
                     DEBUG_PRINT("StateMachine: Speed increased to "); DEBUG_PRINTLN(getSpeedString());
-                    // Apply new speed to motor
+
+                    // Apply new speed to swing motor using speed level
                     if (_swingMotors) {
-                        RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
-                        if (_currentSpeed == SPEED_LOW) _swingMotors->setSpeed(config.getSpeedLow());
-                        else if (_currentSpeed == SPEED_MEDIUM) _swingMotors->setSpeed(config.getSpeedMedium());
-                        else if (_currentSpeed == SPEED_HIGH) _swingMotors->setSpeed(config.getSpeedHigh());
+                        _swingMotors->setSwingSpeed(_currentSpeed);
                     }
                 } else {
                     DEBUG_PRINTLN("StateMachine: Already at max speed.");
                 }
+
             } else if (event == EVENT_SPEED_DOWN) {
                 if (_currentSpeed > SPEED_LOW) {
                     _currentSpeed = static_cast<Speed>(_currentSpeed - 1);
                     DEBUG_PRINT("StateMachine: Speed decreased to "); DEBUG_PRINTLN(getSpeedString());
-                    // Apply new speed to motor
+
+                    // Apply new speed to swing motor using speed level
                     if (_swingMotors) {
-                        RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
-                        if (_currentSpeed == SPEED_LOW) _swingMotors->setSpeed(config.getSpeedLow());
-                        else if (_currentSpeed == SPEED_MEDIUM) _swingMotors->setSpeed(config.getSpeedMedium());
-                        else if (_currentSpeed == SPEED_HIGH) _swingMotors->setSpeed(config.getSpeedHigh());
+                        _swingMotors->setSwingSpeed(_currentSpeed);
                     }
                 } else {
                     DEBUG_PRINTLN("StateMachine: Already at min speed.");
                 }
-            } else if (event == EVENT_SPEED_SET_LOW) { // ADD: Direct LOW speed button
+
+            } else if (event == EVENT_SPEED_SET_LOW) {
                 DEBUG_PRINTLN("StateMachine: Direct speed set to LOW.");
                 _currentSpeed = SPEED_LOW;
                 if (_swingMotors) {
-                    RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
-                    _swingMotors->setSpeed(config.getSpeedLow());
+                    _swingMotors->setSwingSpeed(1); // Low = 1
                 }
-            } else if (event == EVENT_SPEED_SET_MEDIUM) { // ADD: Direct MEDIUM speed button
+
+            } else if (event == EVENT_SPEED_SET_MEDIUM) {
                 DEBUG_PRINTLN("StateMachine: Direct speed set to MEDIUM.");
                 _currentSpeed = SPEED_MEDIUM;
                 if (_swingMotors) {
-                    RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
-                    _swingMotors->setSpeed(config.getSpeedMedium());
+                    _swingMotors->setSwingSpeed(2); // Medium = 2
                 }
-            } else if (event == EVENT_SPEED_SET_HIGH) { // ADD: Direct HIGH speed button
+
+            } else if (event == EVENT_SPEED_SET_HIGH) {
                 DEBUG_PRINTLN("StateMachine: Direct speed set to HIGH.");
                 _currentSpeed = SPEED_HIGH;
                 if (_swingMotors) {
-                    RuntimeConfig& config = RuntimeConfig::getInstance(); // Get instance
-                    _swingMotors->setSpeed(config.getSpeedHigh());
+                    _swingMotors->setSwingSpeed(3); // High = 3
                 }
             } else if (event == EVENT_OBSTACLE_DETECTED) {
                 DEBUG_PRINTLN("StateMachine: Obstacle detected while swinging. Transitioning to ERROR.");
@@ -271,17 +268,16 @@ void StateMachine::enterState(State state) {
             DEBUG_PRINT("StateMachine: Starting swing motion at speed: ");
             DEBUG_PRINTLN(getSpeedString());
             if (_swingMotors) {
-                RuntimeConfig& config = RuntimeConfig::getInstance();
-                uint16_t speedValue = config.getSpeedLow(); // Always start at low
-                _swingMotors->setSpeed(speedValue);
                 _swingMotors->enable();
                 _swingMotors->startSwinging();
+                _swingMotors->setSwingSpeed(1); // Always start at low speed
             }
+
             // Audio feedback
             if (_buzzer) {
-                _buzzer->beep(1000, 100);
-                delay(50);
                 _buzzer->beep(1200, 100);
+                // delay(50);
+                // _buzzer->beep(1200, 100);
             }
             break;
 
@@ -316,8 +312,6 @@ void StateMachine::enterState(State state) {
             // Audio feedback - double beep
             if (_buzzer) {
                 _buzzer->beep(1500, 200);
-                delay(100);
-                _buzzer->beep(1500, 200);
             }
             break;
 
@@ -329,8 +323,6 @@ void StateMachine::enterState(State state) {
             }
             // Audio feedback - urgent double beep
             if (_buzzer) {
-                _buzzer->beep(2000, 500);
-                delay(100);
                 _buzzer->beep(2000, 500);
             }
             break;
@@ -378,8 +370,6 @@ void StateMachine::exitState(State state) {
             DEBUG_PRINTLN("StateMachine: Exiting fault state");
             // Audio feedback - recovery beep
             if (_buzzer) {
-                _buzzer->beep(1000, 100);
-                delay(50);
                 _buzzer->beep(1500, 100);
             }
             break;

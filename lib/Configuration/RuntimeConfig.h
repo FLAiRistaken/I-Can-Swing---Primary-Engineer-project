@@ -24,6 +24,15 @@ public:
         uint16_t speedHigh;           // 2 bytes
         uint16_t maxSpeed;            // 2 bytes
 
+        // ========== SWING MOTION PARAMETERS ========== (10 bytes)
+        uint16_t swingPeriodMs;           // Total swing cycle time (3000-6000ms) - 2 bytes
+        uint16_t swingStepIntervalMs;     // Time between micro-steps (10-50ms) - 2 bytes
+        uint8_t swingMaxAngleDegrees;     // Maximum swing angle (30-60°) - 1 byte
+        uint8_t swingSpeedLowSteps;       // Steps per interval at low speed - 1 byte
+        uint8_t swingSpeedMediumSteps;    // Steps per interval at medium speed - 1 byte
+        uint8_t swingSpeedHighSteps;      // Steps per interval at high speed - 1 byte
+        uint16_t swingSmoothStopMs;       // Time for smooth stop (1000-5000ms) - 2 bytes
+
         // System Configuration (8 bytes)
         uint16_t pressureThreshold;   // 2 bytes
         uint16_t doorTimeoutMs;       // 2 bytes (stored in seconds, multiply by 1000)
@@ -31,22 +40,7 @@ public:
         uint8_t flags;                // 1 byte - bit flags for boolean settings
         uint16_t safetyCheckInterval; // 2 bytes
 
-        // Calibration Data (16 bytes)
-        float frontSensorBaseline;    // 4 bytes
-        float rearSensorBaseline;     // 4 bytes
-        float pressureBaseline;       // 4 bytes
-        uint32_t lastCalibrationTime; // 4 bytes
-
-        // Usage Statistics (8 bytes)
-        uint16_t totalSwingCycles;    // 2 bytes
-        uint16_t totalDoorOperations; // 2 bytes
-        uint16_t totalEmergencyStops; // 2 bytes
-        uint16_t operationHours;      // 2 bytes
-
-        // Reserved for future use (8 bytes)
-        uint32_t reserved1;           // 4 bytes
-        uint32_t reserved2;           // 4 bytes
-    }; // Total: ~64 bytes
+    };
 
     // Flag bit definitions
     static const uint8_t FLAG_AUDIO_FEEDBACK = 0x01;
@@ -78,6 +72,15 @@ public:
     unsigned long getDoorTimeoutMs() const { return _settings.doorTimeoutMs * 1000UL; }
     uint8_t getBuzzerVolume() const { return _settings.buzzerVolume; }
     uint16_t getSafetyCheckInterval() const { return _settings.safetyCheckInterval; }
+
+    // Swing motion getters
+    uint16_t getSwingPeriodMs() const { return _settings.swingPeriodMs; }
+    uint16_t getSwingStepIntervalMs() const { return _settings.swingStepIntervalMs; }
+    uint8_t getSwingMaxAngleDegrees() const { return _settings.swingMaxAngleDegrees; }
+    uint8_t getSwingSpeedLowSteps() const { return _settings.swingSpeedLowSteps; }
+    uint8_t getSwingSpeedMediumSteps() const { return _settings.swingSpeedMediumSteps; }
+    uint8_t getSwingSpeedHighSteps() const { return _settings.swingSpeedHighSteps; }
+    uint16_t getSwingSmoothStopMs() const { return _settings.swingSmoothStopMs; }
 
     // Flag getters
     bool isAudioFeedbackEnabled() const { return _settings.flags & FLAG_AUDIO_FEEDBACK; }

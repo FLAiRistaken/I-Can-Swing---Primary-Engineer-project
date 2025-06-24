@@ -43,9 +43,6 @@ void RuntimeConfig::loadDefaults() {
     _settings.rearCriticalDistance = CRITICAL_DISTANCE_CM;
     _settings.pressureThreshold = PRESSURE_THRESHOLD;
 
-    _settings.speedLow = SPEED_LOW;
-    _settings.speedMedium = SPEED_MEDIUM;
-    _settings.speedHigh = SPEED_HIGH;
     _settings.maxSpeed = 700;
 
     _settings.doorTimeoutMs = DOOR_OPEN_TIME_MS / 1000; // Store in seconds
@@ -55,17 +52,14 @@ void RuntimeConfig::loadDefaults() {
     // Set default flags
     _settings.flags = FLAG_AUDIO_FEEDBACK | FLAG_VOICE_RECOGNITION | FLAG_WATCHDOG_ENABLED;
 
-    // Calibration defaults
-    _settings.frontSensorBaseline = 200.0f;
-    _settings.rearSensorBaseline = 200.0f;
-    _settings.pressureBaseline = 100.0f;
-    _settings.lastCalibrationTime = 0;
-
-    // Usage stats start at zero
-    _settings.totalSwingCycles = 0;
-    _settings.totalDoorOperations = 0;
-    _settings.totalEmergencyStops = 0;
-    _settings.operationHours = 0;
+    // Swing motion defaults (realistic pendulum physics)
+    _settings.swingPeriodMs = 4000;         // 4 second total cycle (comfortable)
+    _settings.swingStepIntervalMs = 20;     // 50Hz update rate (smooth motion)
+    _settings.swingMaxAngleDegrees = 45;    // ±45° swing (safe range)
+    _settings.swingSpeedLowSteps = 1;       // 1 step per 20ms = gentle
+    _settings.swingSpeedMediumSteps = 2;    // 2 steps per 20ms = moderate
+    _settings.swingSpeedHighSteps = 3;      // 3 steps per 20ms = energetic
+    _settings.swingSmoothStopMs = 2000;     // 2 second smooth stop
 
     _settings.checksum = calculateChecksum();
     _isDirty = true;

@@ -52,6 +52,30 @@ void StepperDriver::setSpeed(uint16_t rpm) {
     DEBUG_PRINTLN(" RPM");
 }
 
+void StepperDriver::setSwingSpeed(uint8_t speedLevel) {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+    switch(speedLevel) {
+        case 1: // Low
+            _stepsPerInterval = config.getSwingSpeedLowSteps();
+            break;
+        case 2: // Medium
+            _stepsPerInterval = config.getSwingSpeedMediumSteps();
+            break;
+        case 3: // High
+            _stepsPerInterval = config.getSwingSpeedHighSteps();
+            break;
+        default:
+            _stepsPerInterval = config.getSwingSpeedLowSteps();
+            break;
+    }
+
+    DEBUG_PRINT("StepperDriver: Swing speed set to ");
+    DEBUG_PRINT(_stepsPerInterval);
+    DEBUG_PRINTLN(" steps per interval");
+}
+
+
 void StepperDriver::setDirection(bool clockwise) {
     _clockwise = clockwise;
 }
@@ -96,28 +120,35 @@ void StepperDriver::startSwinging() {
         return;
     }
 
-    // Calculate steps for 45 degrees
-    _swingSteps = (45 * _stepsPerRevolution) / 360;
+    RuntimeConfig& config = RuntimeConfig::getInstance();
 
+    // Calculate physics parameters
+    _maxSwingSteps = (config.getSwingMaxAngleDegrees() * _stepsPerRevolution) / 360;
+    _stepInterval = config.getSwingStepIntervalMs();
+    _stepsPerInterval = config.getSwingSpeedLowSteps(); // Start at low speed
+
+    // Initialize swing state
     _swinging = true;
-    _swingDirection = true;
     _running = false;
     _returningHome = false;
+    _smoothStopping = false;
+    _swingStartTime = millis();
+    _lastStepTime = millis();
 
-    // Move to initial +45° position
-    int stepsToMove = _swingSteps - _currentPosition;
-    _stepper.step(stepsToMove);
-    updatePosition(stepsToMove);
-
-    DEBUG_PRINTLN("StepperDriver: Started swinging motion");
+    DEBUG_PRINTLN("StepperDriver: Started non-blocking pendulum motion");
+    DEBUG_PRINT("StepperDriver: Max swing steps: "); DEBUG_PRINTLN(_maxSwingSteps);
+    DEBUG_PRINT("StepperDriver: Step interval: "); DEBUG_PRINTLN(_stepInterval);
 }
+
 
 void StepperDriver::stopSwinging() {
-    if (_swinging) {
-        _swinging = false;
-        returnHome();  // Use the dedicated home return method
+    if (_swinging && !_smoothStopping) {
+        _smoothStopping = true;
+        _smoothStopStartTime = millis();
+        DEBUG_PRINTLN("StepperDriver: Initiated smooth pendulum stop");
     }
 }
+
 
 // Enhanced stop methods
 void StepperDriver::emergencyHalt() {
@@ -171,42 +202,66 @@ bool StepperDriver::isSwinging() const {
 void StepperDriver::update() {
     if (!_enabled || _emergencyHalted) return;
 
+    unsigned long currentTime = millis();
+
     if (_returningHome) {
-        // Move toward center position
-        if (_currentPosition != 0) {
-            int stepDirection = (_currentPosition > 0) ? -1 : 1;
+        // Non-blocking return to home
+        if (currentTime - _lastStepTime >= _stepInterval) {
+            if (_currentPosition != 0) {
+                int stepDirection = (_currentPosition > 0) ? -1 : 1;
+                _stepper.step(stepDirection);
+                updatePosition(stepDirection);
+                _lastStepTime = currentTime;
+
+                if (_currentPosition == 0) {
+                    _returningHome = false;
+                    DEBUG_PRINTLN("StepperDriver: Reached home position");
+                }
+            } else {
+                _returningHome = false;
+            }
+        }
+    }
+    else if (_smoothStopping) {
+        // Non-blocking smooth stop with deceleration
+        unsigned long stopElapsed = currentTime - _smoothStopStartTime;
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        uint16_t stopDuration = config.getSwingSmoothStopMs();
+
+        if (stopElapsed >= stopDuration) {
+            // Smooth stop complete, return home
+            _smoothStopping = false;
+            _swinging = false;
+            returnHome();
+        } else {
+            // Gradual deceleration during smooth stop
+            float stopProgress = (float)stopElapsed / stopDuration;
+            uint16_t slowInterval = _stepInterval + (uint16_t)(stopProgress * _stepInterval * 2);
+
+            if (currentTime - _lastStepTime >= slowInterval) {
+                updateSwingPhysics();
+                _lastStepTime = currentTime;
+            }
+        }
+    }
+    else if (_swinging) {
+        // NON-BLOCKING PENDULUM PHYSICS
+        if (currentTime - _lastStepTime >= _stepInterval) {
+            updateSwingPhysics();
+            _lastStepTime = currentTime;
+        }
+    }
+    else if (_running) {
+        // Non-blocking continuous rotation
+        if (currentTime - _lastStepTime >= _stepInterval) {
+            int stepDirection = _clockwise ? 1 : -1;
             _stepper.step(stepDirection);
             updatePosition(stepDirection);
-
-            if (_currentPosition == 0) {
-                _returningHome = false;
-                DEBUG_PRINTLN("StepperDriver: Reached home position");
-            }
-        } else {
-            _returningHome = false;
+            _lastStepTime = currentTime;
         }
-    } else if (_swinging) {
-        // Enhanced swing logic with position tracking
-        if (_swingDirection) {
-            // Move from +45° to -45°
-            int stepsToMove = -2 * _swingSteps;
-            _stepper.step(stepsToMove);
-            updatePosition(stepsToMove);
-            _swingDirection = false;
-        } else {
-            // Move from -45° to +45°
-            int stepsToMove = 2 * _swingSteps;
-            _stepper.step(stepsToMove);
-            updatePosition(stepsToMove);
-            _swingDirection = true;
-        }
-    } else if (_running) {
-        // Simple continuous rotation
-        int stepDirection = _clockwise ? 1 : -1;
-        _stepper.step(stepDirection);
-        updatePosition(stepDirection);
     }
 }
+
 
 bool StepperDriver::isRunning() const {
     return (_running || _swinging || _returningHome) && _enabled && !_emergencyHalted;
@@ -223,3 +278,46 @@ void StepperDriver::updatePosition(int steps) {
     _currentPosition += steps;
     // Optional: Add bounds checking or wraparound logic if needed
 }
+
+void StepperDriver::updateSwingPhysics() {
+    // Calculate current position in swing cycle
+    float swingProgress = calculateSwingProgress(millis());
+
+    // Calculate target position using sine wave
+    int targetPosition = calculateTargetPosition(swingProgress);
+
+    // Move toward target position (one step at a time)
+    if (_currentPosition != targetPosition) {
+        int stepDirection = (targetPosition > _currentPosition) ? 1 : -1;
+
+        // Take multiple steps based on speed setting
+        for (uint8_t i = 0; i < _stepsPerInterval; i++) {
+            if (_currentPosition != targetPosition) {
+                _stepper.step(stepDirection);
+                updatePosition(stepDirection);
+            }
+        }
+    }
+}
+
+float StepperDriver::calculateSwingProgress(unsigned long currentTime) {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    unsigned long elapsed = currentTime - _swingStartTime;
+    uint16_t period = config.getSwingPeriodMs();
+
+    // Return progress from 0.0 to 1.0 in the swing cycle
+    return (float)(elapsed % period) / period;
+}
+
+int StepperDriver::calculateTargetPosition(float progress) {
+    // Sine wave pendulum motion: position = amplitude * sin(2π * progress)
+    float sineValue = calculateSinePosition(progress);
+    return (int)(sineValue * _maxSwingSteps);
+}
+
+float StepperDriver::calculateSinePosition(float progress) {
+    // Pure sine wave for natural pendulum motion
+    float angle = 2.0 * PI * progress;
+    return sin(angle);
+}
+
