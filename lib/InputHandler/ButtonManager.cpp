@@ -45,33 +45,26 @@ void ButtonManager::begin() {
     DEBUG_PRINTLN("ButtonManager: Initialisation complete");
 }
 
-
 void ButtonManager::update() {
     unsigned long currentTime = millis();
 
     for (int i = 0; i <= BTN_GIVE; i++) {
-
-        // Read the current state (inverted because of INPUT_PULLUP)
         bool reading = !_expander->digitalRead(_pins[i]);
 
-        // Check if button state changed
-        if (reading != _lastState[i]) {
-            _lastDebounceTime[i] = currentTime;
-        }
-
-        // If enough time passed since last change, update the state
+        // Only process if enough time has passed since last change (cooldown period)
         if ((currentTime - _lastDebounceTime[i]) > BUTTON_DEBOUNCE_MS) {
+
+            // If reading is different from current state, we have a valid state change
             if (reading != _currentState[i]) {
                 _currentState[i] = reading;
+                _lastDebounceTime[i] = currentTime; // Reset cooldown timer
 
-                // Set the flag when button is pressed
+                // Set pressed flag on button press
                 if (_currentState[i]) {
                     _pressedFlag[i] = true;
                 }
             }
         }
-
-        _lastState[i] = reading;
     }
 }
 
