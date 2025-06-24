@@ -2,70 +2,65 @@
 #include <Arduino.h>
 
 // ========================
-// Pin Definitions
+// FINAL PIN ASSIGNMENTS - Arduino UNO R4 WiFi
 // ========================
 
 // ---- System Control ----
-constexpr uint8_t PIN_BUZZER         = 9;   // Digital pin for buzzer
-constexpr uint8_t PIN_EMERGENCY_STOP = 3;   // Interrupt-capable pin
+constexpr uint8_t PIN_BUZZER = 12;          // Moved from pin 13 to avoid upload noise
+constexpr uint8_t PIN_EMERGENCY_STOP = 3;   // Interrupt-capable pin (MUST stay here)
 
 // ---- Stepper Motor Control ----
-// L298N Motor Driver Pins for Stepper Control
-constexpr uint8_t PIN_SWING_MOTOR_IN1 = 4;
-constexpr uint8_t PIN_SWING_MOTOR_IN2 = 5;
-constexpr uint8_t PIN_SWING_MOTOR_IN3 = 6;
-constexpr uint8_t PIN_SWING_MOTOR_IN4 = 7;
+constexpr uint8_t PIN_SWING_MOTOR_IN1 = 4;  // L298N Motor Driver
+constexpr uint8_t PIN_SWING_MOTOR_IN2 = 5;  // L298N Motor Driver
+constexpr uint8_t PIN_SWING_MOTOR_IN3 = 6;  // L298N Motor Driver
+constexpr uint8_t PIN_SWING_MOTOR_IN4 = 7;  // L298N Motor Driver
 
-// ---- Door Actuators (ON EXPANDER) ----
-constexpr uint8_t PIN_DOOR_ACTUATOR1_FWD = 9;
-constexpr uint8_t PIN_DOOR_ACTUATOR1_REV = 10;
-constexpr uint8_t PIN_DOOR_ACTUATOR2_FWD = 11;
-constexpr uint8_t PIN_DOOR_ACTUATOR2_REV = 12;
+// ---- Voice Recognition (SoftwareSerial) ----
+// TESTED WORKING on Arduino UNO R4 WiFi - pins 2,9 avoid SPI conflicts
+constexpr uint8_t PIN_VOICE_RX = 2;          // Working reliably on R4 WiFi
+constexpr uint8_t PIN_VOICE_TX = 9;          // Moved from pin 12 to avoid SPI interference
 
-// ---- Buttons ----
-// USING EXPANSION BOARD - set pins corrorlate to the expander pins not the Arduinos
-constexpr uint8_t PIN_BTN_START        = 0;   // D12
-constexpr uint8_t PIN_BTN_STOP         = 1;   // D13
-constexpr uint8_t PIN_BTN_SPEED_LOW    = 2;   // D14
-constexpr uint8_t PIN_BTN_SPEED_MEDIUM = 3;   // D15
-constexpr uint8_t PIN_BTN_SPEED_HIGH   = 4;   // D16
-constexpr uint8_t PIN_BTN_DOOR_OPEN    = 5;
-constexpr uint8_t PIN_BTN_DOOR_CLOSE   = 6;
-constexpr uint8_t PIN_BTN_ALERT        = 7;
-constexpr uint8_t PIN_BTN_GIVE         = 8;
+// ---- Ultrasonic Sensors (Stationary on swing frame) ----
+constexpr uint8_t PIN_ULTRASONIC1_TRIG = A1; // Front sensor trigger
+constexpr uint8_t PIN_ULTRASONIC1_ECHO = A2; // Front sensor echo
+constexpr uint8_t PIN_ULTRASONIC2_TRIG = A3; // Rear sensor trigger
+constexpr uint8_t PIN_ULTRASONIC2_ECHO = 8;  // Rear sensor echo
 
-// ---- Sensors ----
-// Pressure sensor (analog only)
-constexpr uint8_t PIN_PRESSURE_SENSOR = A0;  // Analog input
+// ---- Analog Sensors ----
+constexpr uint8_t PIN_PRESSURE_SENSOR = A0;  // User presence detection
 
-// Ultrasonic Sensor 1 (front, use available digital pins)
-constexpr uint8_t PIN_ULTRASONIC1_TRIG = A1;  // Already used for stepper1 enable, if conflict, move to another unused pin
-constexpr uint8_t PIN_ULTRASONIC1_ECHO = A2;  // Already used for stepper1 dir, if conflict, move to another unused pin
+// ---- I2C Bus (MCP23017 Expander) ----
+constexpr uint8_t PIN_I2C_SDA = A4;          // Reserved for I2C (cannot change)
+constexpr uint8_t PIN_I2C_SCL = A5;          // Reserved for I2C (cannot change)
 
-// If you want a second ultrasonic sensor, use any remaining digital pins (not A4/A5, not used for I2C)
-constexpr uint8_t PIN_ULTRASONIC2_TRIG = A3;
-constexpr uint8_t PIN_ULTRASONIC2_ECHO = 8;
+// ---- Door Actuators (ON MCP23017 EXPANDER) ----
+constexpr uint8_t PIN_DOOR_ACTUATOR1_FWD = 9;  // Expander pin 9
+constexpr uint8_t PIN_DOOR_ACTUATOR1_REV = 10; // Expander pin 10
+constexpr uint8_t PIN_DOOR_ACTUATOR2_FWD = 11; // Expander pin 11
+constexpr uint8_t PIN_DOOR_ACTUATOR2_REV = 12; // Expander pin 12
 
-// ---- I2C Display ----
-//constexpr uint8_t PIN_DISPLAY_SDA = A5; // Reserved for I2C
-//constexpr uint8_t PIN_DISPLAY_SCL = A4; // Reserved for I2C
+// ---- Buttons (ON MCP23017 EXPANDER) ----
+constexpr uint8_t PIN_BTN_START = 0;         // Expander pin 0
+constexpr uint8_t PIN_BTN_STOP = 1;          // Expander pin 1
+constexpr uint8_t PIN_BTN_SPEED_LOW = 2;     // Expander pin 2
+constexpr uint8_t PIN_BTN_SPEED_MEDIUM = 3;  // Expander pin 3
+constexpr uint8_t PIN_BTN_SPEED_HIGH = 4;    // Expander pin 4
+constexpr uint8_t PIN_BTN_DOOR_OPEN = 5;     // Expander pin 5
+constexpr uint8_t PIN_BTN_DOOR_CLOSE = 6;    // Expander pin 6
+constexpr uint8_t PIN_BTN_ALERT = 7;         // Expander pin 7
+constexpr uint8_t PIN_BTN_GIVE = 8;          // Expander pin 8
 
-// ---- I2C Expansion ----
-constexpr uint8_t PIN_I2C_SDA = A4;
-constexpr uint8_t PIN_I2C_SCL = A5;
-
-// ---- Voice Recognition Module (SoftwareSerial, pick any free digital pins except D0/D1, A4/A5) ----
-constexpr uint8_t PIN_VOICE_RX = 10;  // Example: D8 (if not used elsewhere)
-constexpr uint8_t PIN_VOICE_TX = 11;  // Example: D7 (if not used elsewhere)
+// ---- Available Pins (with caveats) ----
+// Pin 10: SPI SS - may have interference, use with caution
+// Pin 11: SPI COPI - may have interference, use with caution
+// Pin 13: SPI SCK + built-in LED - causes noise during upload
+// Pins 0,1: USB Serial - disconnect during programming
 
 // ========================
 // System Constants
 // ========================
-constexpr uint16_t SPEED_LOW    = 300;
-constexpr uint16_t SPEED_MEDIUM = 500;
-constexpr uint16_t SPEED_HIGH   = 700;
 constexpr unsigned long DOOR_OPEN_TIME_MS   = 16000;
-constexpr unsigned long BUTTON_DEBOUNCE_MS  = 50;
+constexpr unsigned long BUTTON_DEBOUNCE_MS  = 15;
 constexpr unsigned long SENSOR_CHECK_MS     = 100;
 
 // ---- Safety Parameters ----
