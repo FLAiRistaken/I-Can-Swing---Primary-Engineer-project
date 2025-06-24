@@ -121,8 +121,6 @@ void handleButtons() {
                     buzzer.beep(300, 100);
                 } else if (millis() - emergencyResetStartTime > 3000) {
                     stateMachine.processEvent(StateMachine::EVENT_EMERGENCY_RESET);
-                    buzzer.beep(700, 100);
-                    delay(100);
                     buzzer.beep(1200, 100);
                     emergencyResetStartTime = 0;
                 }
@@ -247,8 +245,6 @@ void setup() {
     buzzer.beep(1500, 100);
 
     Serial.println("System ready");
-
-    delay(200);
 }
 
 void loop() {
@@ -256,7 +252,14 @@ void loop() {
     // --- All non-blocking updates run on every loop ---
     handleButtons();
     stateMachine.update();
-    voiceModule.update(); // Stays commented out for now
+
+    // Voice recognition timing control (10Hz update rate for stability)
+    static unsigned long lastVoiceCheck = 0;
+    if (millis() - lastVoiceCheck > 100) { // Check every 100ms instead of every loop
+        voiceModule.update();
+        lastVoiceCheck = millis();
+    }
+
     doorActuator.update();
     updateMotors();
 
@@ -264,16 +267,16 @@ void loop() {
 
     // --- Timed debug printout ---
     static unsigned long lastPrintTime = 0;
-    if (millis() - lastPrintTime > 500) {
+    if (millis() - lastPrintTime > 2000) {
         lastPrintTime = millis();
 
         float currentFrontDistance = safetyMonitor.getFrontDistance();
         float currentRearDistance = safetyMonitor.getRearDistance();
 
-        DEBUG_PRINTLN("Front: ");
-        DEBUG_PRINTLN(currentFrontDistance);
-        DEBUG_PRINTLN(" cm, Rear: ");
-        DEBUG_PRINTLN(currentRearDistance);
+        DEBUG_PRINT("Front: ");
+        DEBUG_PRINT(currentFrontDistance);
+        DEBUG_PRINT(" cm, Rear: ");
+        DEBUG_PRINT(currentRearDistance);
         DEBUG_PRINTLN(" cm");
     }
 
