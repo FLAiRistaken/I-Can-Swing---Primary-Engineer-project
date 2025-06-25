@@ -8,7 +8,6 @@
 class ButtonManager {
 public:
     enum Button {
-        BTN_START,
         BTN_STOP,
         BTN_SPEED_LOW,
         BTN_SPEED_MEDIUM,

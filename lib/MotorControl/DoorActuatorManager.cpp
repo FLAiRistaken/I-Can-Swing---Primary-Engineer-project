@@ -11,7 +11,7 @@ DoorActuatorManager::DoorActuatorManager(uint8_t act1FwdPin, uint8_t act1RevPin,
       _stateMachine(stateMachine),
       _currentDoorState(DOOR_STOPPED),
       _operationStartTime(0),
-      _operationTimeoutMs(RuntimeConfig::getInstance().getDoorTimeoutMs()) // Default timeout for full travel
+      _operationTimeoutMs(16000) // Default timeout for full travel
 {}
 
 void DoorActuatorManager::begin() {

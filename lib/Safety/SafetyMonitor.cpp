@@ -92,6 +92,13 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkSafety() {
 }
 
 void SafetyMonitor::update() {
+    // Don't send pressure events if in emergency state
+    if (_stateMachine->getCurrentState() == StateMachine::STATE_EMERGENCY) {
+        // Still run safety checks but don't send pressure events
+        checkSafety();
+        return;
+    }
+
     // --- Hybrid Ultrasonic Sensor Reading ---
     const unsigned long SENSOR_CHECK_INTERVAL = 100;
     if (millis() - _lastSensorCheck > SENSOR_CHECK_INTERVAL) {
@@ -197,12 +204,12 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
         }
 
         // Filter expected ground readings based on swing phase
-        if (isReadingExpectedGround(_frontDistance, lastFrontDistance)) {
+        if (isReadingExpectedSwing(_frontDistance, lastFrontDistance)) {
             DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on front sensor");
             _frontDistance = 400.0f; // Set to max range (filtered)
         }
 
-        if (isReadingExpectedGround(_rearDistance, lastRearDistance)) {
+        if (isReadingExpectedSwing(_rearDistance, lastRearDistance)) {
             DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on rear sensor");
             _rearDistance = 400.0f; // Set to max range (filtered)
         }
@@ -248,23 +255,43 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     return STATUS_OK;
 }
 
-bool SafetyMonitor::isReadingExpectedGround(float distance, float previousDistance) {
-    // Expected ground pattern: rapid decrease to fixed short distance at bottom of swing
-    bool isExpectedPattern = false;
+bool SafetyMonitor::isReadingExpectedSwing(float distance, float previousDistance) {
+    // Expected swing pattern: periodic detection of swing seat passing through sensor field
 
-    // If distance suddenly dropped to <40cm during swing
-    if (distance < 40.0f && previousDistance > 80.0f &&
-        _stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
+    return false;
 
-        // If we're in the forward phase (swing moving toward sensor mounting point)
-        if (_currentSwingPhase == PHASE_FORWARD) {
-            // Likely detecting the ground at bottom of swing arc
-            isExpectedPattern = true;
-        }
+    if (_stateMachine->getCurrentState() != StateMachine::STATE_SWINGING) {
+        return false; // Only filter during swinging
     }
 
-    return isExpectedPattern;
+    // Check if this looks like the swing seat detection
+    // Swing seat should appear at a consistent distance (e.g., 30-100cm range)
+    bool isPossibleSwingSeat = (distance > 20.0f && distance < 150.0f);
+
+    if (!isPossibleSwingSeat) {
+        return false; // Outside expected swing seat range
+    }
+
+    // Check for periodic pattern based on swing timing
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    unsigned long swingPeriod = config.getSwingPeriodMs();
+    unsigned long timeSinceSwingStart = millis() - _lastPhaseChange;
+
+    // Calculate expected swing position based on time
+    float swingProgress = (float)(timeSinceSwingStart % swingPeriod) / swingPeriod;
+    float expectedPhase = sin(2.0 * PI * swingProgress); // -1 to +1
+
+    // If we're detecting something when swing should be in sensor range, it's likely the seat
+    bool swingExpectedInRange = (abs(expectedPhase) > 0.3f); // Swing not at center position
+
+    if (swingExpectedInRange && isPossibleSwingSeat) {
+        // This detection matches expected swing timing and distance - likely the swing seat
+        return true;
+    }
+
+    return false; // Doesn't match expected swing pattern - treat as real obstacle
 }
+
 
 float SafetyMonitor::getEffectiveWarningDistance() const {
     RuntimeConfig& config = RuntimeConfig::getInstance();

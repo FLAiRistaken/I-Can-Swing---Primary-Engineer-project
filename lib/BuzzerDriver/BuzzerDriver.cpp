@@ -39,9 +39,9 @@ void BuzzerDriver::stop() {
 
 void BuzzerDriver::playAlertTone() {
     // A high-pitched, insistent double beep
-    playTone(2500, 200);
+    beep(2000, 500);
     delay(250);
-    playTone(2500, 200);
+    playTone(2000, 200);
 }
 
 void BuzzerDriver::playGiveMelody() {

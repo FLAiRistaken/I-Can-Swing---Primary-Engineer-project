@@ -228,7 +228,7 @@ void WebServer::sendConfigPage(WiFiClient& client) {
 
     client.print("<label>Max Swing Angle (degrees): <input type='number' name='swingAngle' value='");
     client.print(config.getSwingMaxAngleDegrees());
-    client.println("' min='20' max='60'></label>");
+    client.println("' min='20' max='90'></label>");
 
     client.print("<label>Smooth Stop Time (ms): <input type='number' name='smoothStop' value='");
     client.print(config.getSwingSmoothStopMs());

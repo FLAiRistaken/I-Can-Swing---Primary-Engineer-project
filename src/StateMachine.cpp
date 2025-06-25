@@ -14,9 +14,9 @@ StateMachine::StateMachine()
       _doorActuator(nullptr),
       _buzzer(nullptr),
       _swingMotors(nullptr),
-      _stateEntryTime(0),
-      _doorTimeoutMs(RuntimeConfig::getInstance().getDoorTimeoutMs()),
-      _timeoutEnabled(false)
+      _stateEntryTime(0)
+    //   _doorTimeoutMs(165000),
+    //   _timeoutEnabled(false)
 {}
 
 void StateMachine::begin() {
@@ -24,8 +24,8 @@ void StateMachine::begin() {
     _currentSpeed = SPEED_OFF;
     _isUserPresent = false;
     _stateEntryTime = millis();
-    _timeoutEnabled = false;
-    _doorTimeoutMs = RuntimeConfig::getInstance().getDoorTimeoutMs();
+    // _timeoutEnabled = false;
+    // _doorTimeoutMs = RuntimeConfig::getInstance().getDoorTimeoutMs();
 
     // Check if components are set
     if (!_buzzer) {
@@ -115,25 +115,38 @@ void StateMachine::processEvent(Event event) {
     switch (_currentState) {
         case STATE_IDLE:
             DEBUG_PRINTLN("StateMachine: Handling event in IDLE state.");
-            // Check START press AND if user is present flag is true
-            if (event == EVENT_START_PRESSED) {
-                if (_isUserPresent) { // Check the flag here
-                    DEBUG_PRINTLN("StateMachine: Start pressed + User present. Transitioning to SWINGING.");
-                    _currentSpeed = SPEED_LOW; // Start at low speed
-                    transition(STATE_SWINGING);
-                } else {
-                    DEBUG_PRINTLN("StateMachine: Start pressed, but user not present. Doing nothing.");
-                    // buzzer.beep(600, 150);
-                }
-            } else if (event == EVENT_DOOR_OPEN_PRESSED) {
-                DEBUG_PRINTLN("StateMachine: Door toggle event in IDLE. Transitioning to DOOR_OPENING.");
-                transition(STATE_DOOR_OPENING);
-            } else if (event == EVENT_DOOR_CLOSE_PRESSED) {
-                // In IDLE, door should be closed. If pressed, it could be a recalibration or error recovery.
-                DEBUG_PRINTLN("StateMachine: Door CLOSE pressed in IDLE. Transitioning to DOOR_CLOSING (e.g., recalibrate/ensure closed).");
-                transition(STATE_DOOR_CLOSING);
+            if (event == EVENT_SPEED_SET_LOW) {
+            if (_isUserPresent) {
+                DEBUG_PRINTLN("StateMachine: Speed LOW pressed + User present. Starting swing at LOW speed.");
+                _currentSpeed = SPEED_LOW;
+                transition(STATE_SWINGING);
+            } else {
+                DEBUG_PRINTLN("StateMachine: Speed LOW pressed, but user not present. Doing nothing.");
             }
-            break;
+        } else if (event == EVENT_SPEED_SET_MEDIUM) {
+            if (_isUserPresent) {
+                DEBUG_PRINTLN("StateMachine: Speed MEDIUM pressed + User present. Starting swing at MEDIUM speed.");
+                _currentSpeed = SPEED_MEDIUM;
+                transition(STATE_SWINGING);
+            } else {
+                DEBUG_PRINTLN("StateMachine: Speed MEDIUM pressed, but user not present. Doing nothing.");
+            }
+        } else if (event == EVENT_SPEED_SET_HIGH) {
+            if (_isUserPresent) {
+                DEBUG_PRINTLN("StateMachine: Speed HIGH pressed + User present. Starting swing at HIGH speed.");
+                _currentSpeed = SPEED_HIGH;
+                transition(STATE_SWINGING);
+            } else {
+                DEBUG_PRINTLN("StateMachine: Speed HIGH pressed, but user not present. Doing nothing.");
+            }
+        } else if (event == EVENT_DOOR_OPEN_PRESSED) {
+            DEBUG_PRINTLN("StateMachine: Door toggle event in IDLE. Transitioning to DOOR_OPENING.");
+            transition(STATE_DOOR_OPENING);
+        } else if (event == EVENT_DOOR_CLOSE_PRESSED) {
+            DEBUG_PRINTLN("StateMachine: Door CLOSE pressed in IDLE. Transitioning to DOOR_CLOSING.");
+            transition(STATE_DOOR_CLOSING);
+        }
+        break;
 
         case STATE_SWINGING:
             DEBUG_PRINTLN("StateMachine: Handling event in SWINGING state.");
@@ -286,7 +299,7 @@ void StateMachine::enterState(State state) {
             // Direct control of door actuator
             if (_doorActuator) {
                 _doorActuator->openDoor();
-                _timeoutEnabled = true;
+                // _timeoutEnabled = true;
             }
             // Audio feedback
             if (_buzzer) {
@@ -299,7 +312,7 @@ void StateMachine::enterState(State state) {
             // Direct control of door actuator
             if (_doorActuator) {
                 _doorActuator->closeDoor();
-                _timeoutEnabled = true;
+                // _timeoutEnabled = true;
             }
             // Audio feedback
             if (_buzzer) {
@@ -359,9 +372,9 @@ void StateMachine::exitState(State state) {
             // Stop door movement directly
             if (_doorActuator) {
                 _doorActuator->stopDoor();
-                _timeoutEnabled = false;
+                // _timeoutEnabled = false;
             }
-            _timeoutEnabled = false;
+            // _timeoutEnabled = false;
             DEBUG_PRINTLN("StateMachine: Stopping door movement");
             break;
 
@@ -376,31 +389,31 @@ void StateMachine::exitState(State state) {
     }
 }
 
-void StateMachine::setDoorTimeout(unsigned long timeoutMs) {
-    _doorTimeoutMs = timeoutMs;
-    DEBUG_PRINT("StateMachine: Door timeout set to ");
-    DEBUG_PRINT(_doorTimeoutMs);
-    DEBUG_PRINTLN(" ms");
-}
+// void StateMachine::setDoorTimeout(unsigned long timeoutMs) {
+//     _doorTimeoutMs = timeoutMs;
+//     DEBUG_PRINT("StateMachine: Door timeout set to ");
+//     DEBUG_PRINT(_doorTimeoutMs);
+//     DEBUG_PRINTLN(" ms");
+// }
 
 void StateMachine::update() {
-    // Check for timeouts
-    if (_timeoutEnabled) {
-        unsigned long currentTime = millis();
-        if (currentTime - _stateEntryTime > _doorTimeoutMs) {
-            DEBUG_PRINTLN("StateMachine: Door operation timed out!");
+    // // Check for timeouts
+    // if (_timeoutEnabled) {
+    //     unsigned long currentTime = millis();
+    //     if (currentTime - _stateEntryTime > _doorTimeoutMs) {
+    //         DEBUG_PRINTLN("StateMachine: Door operation timed out!");
 
-            // Handle timeout based on current state
-            if (_currentState == STATE_DOOR_OPENING || _currentState == STATE_DOOR_CLOSING) {
-                if (_doorActuator) {
-                    _doorActuator->stopDoor();
-                }
-                transition(STATE_ERROR);
-            }
+    //         // Handle timeout based on current state
+    //         if (_currentState == STATE_DOOR_OPENING || _currentState == STATE_DOOR_CLOSING) {
+    //             if (_doorActuator) {
+    //                 _doorActuator->stopDoor();
+    //             }
+    //             transition(STATE_ERROR);
+    //         }
 
-            _timeoutEnabled = false;
-        }
-    }
+    //         _timeoutEnabled = false;
+    //     }
+    // }
 }
 
 void StateMachine::resetFromEmergency() {

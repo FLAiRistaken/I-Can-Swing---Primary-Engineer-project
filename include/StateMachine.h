@@ -87,8 +87,8 @@ private:
     StepperDriver* _swingMotors;
     bool _isUserPresent; // Flag to track occupancy
     unsigned long _stateEntryTime;
-    unsigned long _doorTimeoutMs;
-    bool _timeoutEnabled;
+    // unsigned long _doorTimeoutMs;
+    // bool _timeoutEnabled;
 
     // Transition to a new state
     void transition(State newState);

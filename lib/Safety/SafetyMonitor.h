@@ -99,5 +99,5 @@ private:
     float _lastRearDistance;
 
     // For expected ground detection filtering
-    bool isReadingExpectedGround(float distance, float previousDistance);
+    bool isReadingExpectedSwing(float distance, float previousDistance);
 };

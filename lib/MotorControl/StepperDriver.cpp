@@ -135,10 +135,20 @@ void StepperDriver::startSwinging() {
     _swingStartTime = millis();
     _lastStepTime = millis();
 
+    // COMPREHENSIVE STARTUP DEBUG
+    Serial.println("=== SWING STARTUP DEBUG ===");
+    Serial.print("Steps per revolution: "); Serial.println(_stepsPerRevolution);
+    Serial.print("Max swing angle: "); Serial.println(config.getSwingMaxAngleDegrees());
+    Serial.print("Calculated max swing steps: "); Serial.println(_maxSwingSteps);
+    Serial.print("Step interval (ms): "); Serial.println(_stepInterval);
+    Serial.print("Steps per interval: "); Serial.println(_stepsPerInterval);
+    Serial.print("Swing period (ms): "); Serial.println(config.getSwingPeriodMs());
+    Serial.print("Expected swing range: +/-"); Serial.print(_maxSwingSteps); Serial.println(" steps");
+    Serial.println("=== END STARTUP DEBUG ===");
+
     DEBUG_PRINTLN("StepperDriver: Started non-blocking pendulum motion");
-    DEBUG_PRINT("StepperDriver: Max swing steps: "); DEBUG_PRINTLN(_maxSwingSteps);
-    DEBUG_PRINT("StepperDriver: Step interval: "); DEBUG_PRINTLN(_stepInterval);
 }
+
 
 
 void StepperDriver::stopSwinging() {
@@ -155,7 +165,10 @@ void StepperDriver::emergencyHalt() {
     _swinging = false;
     _running = false;
     _returningHome = false;
+    _smoothStopping = false;
     _emergencyHalted = true;
+
+    setPinsLow();
     // Don't move - just stop immediately wherever we are
     Serial.println("StepperDriver: EMERGENCY HALT - holding current position");
 }
@@ -286,9 +299,23 @@ void StepperDriver::updateSwingPhysics() {
     // Calculate target position using sine wave
     int targetPosition = calculateTargetPosition(swingProgress);
 
+    // Add comprehensive debug output every 500ms
+    static unsigned long lastDebugTime = 0;
+    if (millis() - lastDebugTime > 500) {
+        lastDebugTime = millis();
+    }
+
     // Move toward target position (one step at a time)
     if (_currentPosition != targetPosition) {
         int stepDirection = (targetPosition > _currentPosition) ? 1 : -1;
+
+        // Add debug for actual stepping
+        static unsigned long lastStepDebug = 0;
+        if (millis() - lastStepDebug > 1000) {
+            Serial.println("STEPPING - Direction: ");
+            Serial.println(stepDirection);
+            lastStepDebug = millis();
+        }
 
         // Take multiple steps based on speed setting
         for (uint8_t i = 0; i < _stepsPerInterval; i++) {
@@ -299,6 +326,7 @@ void StepperDriver::updateSwingPhysics() {
         }
     }
 }
+
 
 float StepperDriver::calculateSwingProgress(unsigned long currentTime) {
     RuntimeConfig& config = RuntimeConfig::getInstance();
@@ -316,8 +344,29 @@ int StepperDriver::calculateTargetPosition(float progress) {
 }
 
 float StepperDriver::calculateSinePosition(float progress) {
-    // Pure sine wave for natural pendulum motion
-    float angle = 2.0 * PI * progress;
-    return sin(angle);
+    // Calculate how long we've been swinging
+    unsigned long swingDuration = millis() - _swingStartTime;
+
+    // Phase-shifted sine wave for proper startup
+    // Option A: Earlier push (120° = 2π/3)
+    float angle = (2.0 * PI * progress) + (2.0 * PI / 3.0);
+
+    // Option B: Later push (60° = π/3)
+    // float angle = (2.0 * PI * progress) + (PI / 3.0);
+
+    // Option C: Even later push (45° = π/4)
+    // float angle = (2.0 * PI * progress) + (PI / 4.0);
+
+    float sineValue = sin(angle);
+
+    // Gradually ramp up amplitude over first 3 seconds to build momentum naturally
+    if (swingDuration < 2000) {
+        float amplitudeRamp = (float)swingDuration / 3000.0f;  // 0 to 1 over 3 seconds
+        return sineValue * amplitudeRamp;  // Gradually increase amplitude
+    } else {
+        return sineValue;  // Full amplitude after momentum is built
+    }
 }
+
+
 

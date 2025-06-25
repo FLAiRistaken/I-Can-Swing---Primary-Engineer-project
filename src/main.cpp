@@ -57,10 +57,10 @@ void handleButtons() {
     buttons.update();
 
     // Map button presses to state machine events
-    if (buttons.wasPressed(ButtonManager::BTN_START)) {
-        DEBUG_PRINTLN("Start pressed");
-        stateMachine.processEvent(StateMachine::EVENT_START_PRESSED);
-    }
+    // if (buttons.wasPressed(ButtonManager::BTN_START)) {
+    //     DEBUG_PRINTLN("Start pressed");
+    //     stateMachine.processEvent(StateMachine::EVENT_START_PRESSED);
+    // }
 
     if (buttons.wasPressed(ButtonManager::BTN_STOP)) {
         DEBUG_PRINTLN("Stop pressed");
@@ -233,7 +233,7 @@ void setup() {
 
     stateMachine.setBuzzer(&buzzer);
     stateMachine.setDoorActuator(&doorActuator);
-    stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
+    // stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
     stateMachine.setSwingMotor(&swingMotors);
 
     ultrasonicFront.startMeasurement();

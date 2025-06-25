@@ -34,13 +34,13 @@ constexpr uint8_t PIN_I2C_SDA = A4;          // Reserved for I2C (cannot change)
 constexpr uint8_t PIN_I2C_SCL = A5;          // Reserved for I2C (cannot change)
 
 // ---- Door Actuators (ON MCP23017 EXPANDER) ----
-constexpr uint8_t PIN_DOOR_ACTUATOR1_FWD = 9;  // Expander pin 9
-constexpr uint8_t PIN_DOOR_ACTUATOR1_REV = 10; // Expander pin 10
-constexpr uint8_t PIN_DOOR_ACTUATOR2_FWD = 11; // Expander pin 11
-constexpr uint8_t PIN_DOOR_ACTUATOR2_REV = 12; // Expander pin 12
+constexpr uint8_t PIN_DOOR_ACTUATOR1_FWD = 9;  // Expander pin B1
+constexpr uint8_t PIN_DOOR_ACTUATOR1_REV = 10; // Expander pin B2
+constexpr uint8_t PIN_DOOR_ACTUATOR2_FWD = 11; // Expander pin B3
+constexpr uint8_t PIN_DOOR_ACTUATOR2_REV = 12; // Expander pin B4
 
 // ---- Buttons (ON MCP23017 EXPANDER) ----
-constexpr uint8_t PIN_BTN_START = 0;         // Expander pin 0
+// constexpr uint8_t PIN_BTN_START = 0;         // Expander pin 0
 constexpr uint8_t PIN_BTN_STOP = 1;          // Expander pin 1
 constexpr uint8_t PIN_BTN_SPEED_LOW = 2;     // Expander pin 2
 constexpr uint8_t PIN_BTN_SPEED_MEDIUM = 3;  // Expander pin 3
@@ -48,7 +48,7 @@ constexpr uint8_t PIN_BTN_SPEED_HIGH = 4;    // Expander pin 4
 constexpr uint8_t PIN_BTN_DOOR_OPEN = 5;     // Expander pin 5
 constexpr uint8_t PIN_BTN_DOOR_CLOSE = 6;    // Expander pin 6
 constexpr uint8_t PIN_BTN_ALERT = 7;         // Expander pin 7
-constexpr uint8_t PIN_BTN_GIVE = 8;          // Expander pin 8
+constexpr uint8_t PIN_BTN_GIVE = 8;          // Expander pin B0
 
 // ---- Available Pins (with caveats) ----
 // Pin 10: SPI SS - may have interference, use with caution
