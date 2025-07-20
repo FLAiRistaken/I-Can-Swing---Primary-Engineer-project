@@ -53,12 +53,12 @@ void RuntimeConfig::loadDefaults() {
     _settings.flags = FLAG_AUDIO_FEEDBACK | FLAG_VOICE_RECOGNITION | FLAG_WATCHDOG_ENABLED;
 
     // Swing motion defaults (realistic pendulum physics)
-    _settings.swingPeriodMs = 3000;         // 4 second total cycle (comfortable)
-    _settings.swingStepIntervalMs = 20;     // 50Hz update rate (smooth motion)
-    _settings.swingMaxAngleDegrees = 90;    // ±45° swing (safe range)
-    _settings.swingSpeedLowSteps = 2;       // 1 step per 20ms = gentle
-    _settings.swingSpeedMediumSteps = 4;    // 2 steps per 20ms = moderate
-    _settings.swingSpeedHighSteps = 6;      // 3 steps per 20ms = energetic
+    _settings.swingPeriodMs = 8000;         // 4 second total cycle (comfortable)
+    _settings.swingStepIntervalMs = 25;     // 50Hz update rate (smooth motion)
+    _settings.swingMaxAngleDegrees = 180;    // ±45° swing (safe range)
+    _settings.swingSpeedLowSteps = 12;       // 1 step per 20ms = gentle
+    _settings.swingSpeedMediumSteps = 16;    // 2 steps per 20ms = moderate
+    _settings.swingSpeedHighSteps = 20;      // 3 steps per 20ms = energetic
     _settings.swingSmoothStopMs = 2000;     // 2 second smooth stop
 
     _settings.checksum = calculateChecksum();

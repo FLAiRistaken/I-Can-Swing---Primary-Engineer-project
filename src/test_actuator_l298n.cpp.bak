@@ -11,15 +11,15 @@ BuzzerDriver buzzer(PIN_BUZZER);
 ExpanderManager expander;
 
 // Create TWO actuator driver instances
-ActuatorDriver actuator1(5, 6, nullptr, &expander);
-ActuatorDriver actuator2(7, 8, nullptr, &expander);
+ActuatorDriver actuator1(9, 10, &expander);
+ActuatorDriver actuator2(11, 12, &expander);
 
 void setup() {
     Serial.begin(9600);
     Serial.println("Enhanced Dual Actuator Test with L298N via Expander");
     Serial.println("===================================================");
-    Serial.println("Actuator 1: Expander pins 5,6");
-    Serial.println("Actuator 2: Expander pins 7,8");
+    Serial.println("Actuator 1: Expander pins 9,10");
+    Serial.println("Actuator 2: Expander pins 11,12");
     Serial.println("");
 
     // Initialize I2C for the expander
@@ -217,91 +217,6 @@ void loop() {
     buzzer.beep(800, 100);
     delay(1000);
 
-    // Test 3: Simultaneous operation - same direction
-    Serial.println("\n--- Test 3: Simultaneous Extension ---");
-    Serial.println("Both actuators extending together");
-    actuator1.extend();
-    actuator2.extend();
-    buzzer.beep(1000, 150);
-    delay(2500);
-    actuator1.stop();
-    actuator2.stop();
-    buzzer.beep(600, 100);
-    delay(1000);
-
-    Serial.println("Both actuators retracting together");
-    actuator1.retract();
-    actuator2.retract();
-    buzzer.beep(1000, 150);
-    delay(2500);
-    actuator1.stop();
-    actuator2.stop();
-    buzzer.beep(600, 100);
-    delay(1000);
-
-    // Test 4: Opposite direction operation
-    Serial.println("\n--- Test 4: Opposite Direction Operation ---");
-    Serial.println("Actuator 1 extending, Actuator 2 retracting");
-    actuator1.extend();
-    actuator2.retract();
-    buzzer.beep(1100, 100);
-    delay(100);
-    buzzer.beep(900, 100);
-    delay(2000);
-    actuator1.stop();
-    actuator2.stop();
-    delay(500);
-
-    Serial.println("Actuator 1 retracting, Actuator 2 extending");
-    actuator1.retract();
-    actuator2.extend();
-    buzzer.beep(900, 100);
-    delay(100);
-    buzzer.beep(1100, 100);
-    delay(2000);
-    actuator1.stop();
-    actuator2.stop();
-    delay(1000);
-
-    // Test 5: Timed operations
-    Serial.println("\n--- Test 5: Timed Operations ---");
-
-    Serial.println("Actuator 1: Timed extend (3 seconds)");
-    actuator1.startExtend(3000);
-    buzzer.beep(1200, 100);
-
-    unsigned long startTime = millis();
-    while (actuator1.isMoving()) {
-        actuator1.update();
-        if ((millis() - startTime) % 500 < 50) {
-            Serial.print("Actuator 1 extending... ");
-            Serial.print((millis() - startTime) / 1000.0, 1);
-            Serial.println("s");
-        }
-        delay(50);
-    }
-    Serial.println("Actuator 1 timed extend complete!");
-    buzzer.beep(1400, 100);
-    delay(500);
-
-    Serial.println("Actuator 2: Timed extend (3 seconds)");
-    actuator2.startExtend(3000);
-    buzzer.beep(1200, 100);
-
-    startTime = millis();
-    while (actuator2.isMoving()) {
-        actuator2.update();
-        if ((millis() - startTime) % 500 < 50) {
-            Serial.print("Actuator 2 extending... ");
-            Serial.print((millis() - startTime) / 1000.0, 1);
-            Serial.println("s");
-        }
-        delay(50);
-    }
-    Serial.println("Actuator 2 timed extend complete!");
-    buzzer.beep(1400, 100);
-    delay(1000);
-
     // Test 6: Status reporting
     Serial.println("\n--- Test 6: Status Reporting ---");
 
@@ -334,7 +249,6 @@ void loop() {
     delay(100);
     buzzer.beep(1600, 100);
 
-    Serial.println("\n=== Enhanced Test Cycle Complete ===");
     Serial.println("Waiting 10 seconds before next cycle...\n");
     delay(10000);
 }

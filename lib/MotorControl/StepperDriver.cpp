@@ -343,30 +343,130 @@ int StepperDriver::calculateTargetPosition(float progress) {
     return (int)(sineValue * _maxSwingSteps);
 }
 
+// float StepperDriver::calculateSinePosition(float progress) {
+//     // Calculate how long we've been swinging
+//     unsigned long swingDuration = millis() - _swingStartTime;
+
+//     // Phase-shifted sine wave for proper startup
+//     // Option A: Earlier push (120° = 2π/3)
+//     float angle = (2.0 * PI * progress) + (2.0 * PI / 3.0);
+
+//     // Currently using 120° - try these alternatives:
+//     // Option B: 90° (original, earlier push)
+//     // float angle = (2.0 * PI * progress) + (PI / 2.0);
+
+//     // Option C: 150° (even earlier push)
+//     // float angle = (2.0 * PI * progress) + (5.0 * PI / 6.0);
+
+//     // Option D: 135° (between current and 150°)
+//     // float angle = (2.0 * PI * progress) + (3.0 * PI / 4.0);
+
+
+//     float sineValue = sin(angle);
+
+//     // Gradually ramp up amplitude over first 3 seconds to build momentum naturally
+//     if (swingDuration < 4000) {
+//         float amplitudeRamp = (float)swingDuration / 3000.0f;  // 0 to 1 over 3 seconds
+//         return sineValue * amplitudeRamp;  // Gradually increase amplitude
+//     } else {
+//         return sineValue;  // Full amplitude after momentum is built
+//     }
+// }
+
+// float StepperDriver::calculateSinePosition(float progress) {
+//     unsigned long swingDuration = millis() - _swingStartTime;
+
+//     // Different strategy: Work WITH pendulum physics, not against it
+//     if (swingDuration < 5000) {  // First 5 seconds - building momentum
+
+//         // Divide cycle into phases that work with pendulum physics
+//         if (progress < 0.1f) {
+//             // PUSH PHASE: Strong forward push (first 10% of cycle)
+//             return 1.0f;  // Full forward power
+
+//         } else if (progress < 0.4f) {
+//             // COAST PHASE: Let momentum carry (10%-40% of cycle)
+//             return 0.0f;  // Motor off, let physics work
+
+//         } else if (progress < 0.5f) {
+//             // PUSH PHASE: Strong backward push (40%-50% of cycle)
+//             return -1.0f;  // Full backward power
+
+//         } else if (progress < 0.9f) {
+//             // COAST PHASE: Let momentum carry (50%-90% of cycle)
+//             return 0.0f;  // Motor off, let physics work
+
+//         } else {
+//             // TRANSITION: Prepare for next forward push
+//             return 0.0f;  // Motor off
+//         }
+
+//     } else {
+//         // Steady state - less aggressive pumping
+//         if (progress < 0.05f || (progress > 0.45f && progress < 0.55f)) {
+//             // Short pushes at swing extremes
+//             return (progress < 0.3f) ? 0.8f : -0.8f;
+//         } else {
+//             return 0.0f;  // Coast most of the time
+//         }
+//     }
+// }
+
+// float StepperDriver::calculateSinePosition(float progress) {
+//     // Much simpler: Just push at the right times, coast otherwise
+
+//     // Forward push: first 5% of cycle
+//     if (progress < 0.05f) {
+//         return 1.0f;  // Full forward push
+//     }
+//     // Coast forward: 5% to 45% of cycle
+//     else if (progress < 0.45f) {
+//         return 0.0f;  // Let momentum carry
+//     }
+//     // Backward push: 45% to 55% of cycle
+//     else if (progress < 0.55f) {
+//         return -1.0f; // Full backward push
+//     }
+//     // Coast backward: 55% to 95% of cycle
+//     else if (progress < 0.95f) {
+//         return 0.0f;  // Let momentum carry
+//     }
+//     // Prepare for next cycle: 95% to 100%
+//     else {
+//         return 0.0f;  // Coast
+//     }
+// }
+
+// float StepperDriver::calculateSinePosition(float progress) {
+//     // AGGRESSIVE UNIDIRECTIONAL PUMPING with longer, stronger pushes
+
+//     // STRONG FORWARD PUSH: first 15% of cycle (900ms out of 6000ms)
+//     if (progress < 0.15f) {
+//         return 1.0f;  // FULL FORWARD POWER for 900ms
+//     }
+//     // COAST: 15% to 85% of cycle (let momentum work)
+//     else if (progress < 0.85f) {
+//         return 0.0f;  // Motor off for 4200ms
+//     }
+//     // PREPARATION PHASE: 85% to 100% (prepare for next push)
+//     else {
+//         return 0.0f;  // Coast
+//     }
+// }
+
 float StepperDriver::calculateSinePosition(float progress) {
-    // Calculate how long we've been swinging
-    unsigned long swingDuration = millis() - _swingStartTime;
-
-    // Phase-shifted sine wave for proper startup
-    // Option A: Earlier push (120° = 2π/3)
-    float angle = (2.0 * PI * progress) + (2.0 * PI / 3.0);
-
-    // Option B: Later push (60° = π/3)
-    // float angle = (2.0 * PI * progress) + (PI / 3.0);
-
-    // Option C: Even later push (45° = π/4)
-    // float angle = (2.0 * PI * progress) + (PI / 4.0);
-
-    float sineValue = sin(angle);
-
-    // Gradually ramp up amplitude over first 3 seconds to build momentum naturally
-    if (swingDuration < 2000) {
-        float amplitudeRamp = (float)swingDuration / 3000.0f;  // 0 to 1 over 3 seconds
-        return sineValue * amplitudeRamp;  // Gradually increase amplitude
-    } else {
-        return sineValue;  // Full amplitude after momentum is built
+    // EXTENDED PUSH: first 20% of cycle (1600ms out of 8000ms)
+    if (progress < 0.20f) {
+        return 1.0f;  // FULL FORWARD POWER for 1600ms (was 1200ms)
+    }
+    // COAST: 20% to 80% of cycle
+    else if (progress < 0.80f) {
+        return 0.0f;  // Motor off for 4800ms
+    }
+    // PREPARATION: 80% to 100%
+    else {
+        return 0.0f;  // Coast
     }
 }
-
 
 

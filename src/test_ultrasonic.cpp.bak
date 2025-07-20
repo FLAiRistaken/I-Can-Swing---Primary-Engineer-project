@@ -4,7 +4,7 @@
 #include "BuzzerDriver.h"
 
 // Create ultrasonic sensor instance
-UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
+UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Front");
 // Create buzzer instance
 BuzzerDriver buzzer(PIN_BUZZER);
 
