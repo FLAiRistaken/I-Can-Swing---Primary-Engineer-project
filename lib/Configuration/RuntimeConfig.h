@@ -32,6 +32,8 @@ public:
         uint8_t swingSpeedMediumSteps;    // Steps per interval at medium speed - 1 byte
         uint8_t swingSpeedHighSteps;      // Steps per interval at high speed - 1 byte
         uint16_t swingSmoothStopMs;       // Time for smooth stop (1000-5000ms) - 2 bytes
+        uint8_t pushDurationPercent;     // Push phase duration (10-50%) - 1 byte
+        uint8_t pushPowerPercent;        // Push power level (50-100%) - 1 byte
 
         // System Configuration (8 bytes)
         uint16_t pressureThreshold;   // 2 bytes
@@ -81,6 +83,22 @@ public:
     uint8_t getSwingSpeedMediumSteps() const { return _settings.swingSpeedMediumSteps; }
     uint8_t getSwingSpeedHighSteps() const { return _settings.swingSpeedHighSteps; }
     uint16_t getSwingSmoothStopMs() const { return _settings.swingSmoothStopMs; }
+    uint8_t getPushDurationPercent() const { return _settings.pushDurationPercent; }
+    uint8_t getPushPowerPercent() const { return _settings.pushPowerPercent; }
+
+    // Swing mottion setters
+    bool setSwingPeriodMs(uint16_t value);
+    bool setSwingStepIntervalMs(uint16_t value);
+    bool setSwingMaxAngleDegrees(uint8_t value);
+    bool setSwingSpeedLowSteps(uint8_t value);
+    bool setSwingSpeedMediumSteps(uint8_t value);
+    bool setSwingSpeedHighSteps(uint8_t value);
+    bool setSwingSmoothStopMs(uint16_t value);
+
+    // For advanced pendulum physics control
+    bool setPushDurationPercent(uint8_t value);    // Control push phase duration
+    bool setPushPowerPercent(uint8_t value);       // Control push power (0-100%)
+
 
     // Flag getters
     bool isAudioFeedbackEnabled() const { return _settings.flags & FLAG_AUDIO_FEEDBACK; }

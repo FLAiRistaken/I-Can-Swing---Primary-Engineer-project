@@ -61,6 +61,10 @@ void RuntimeConfig::loadDefaults() {
     _settings.swingSpeedHighSteps = 20;      // 3 steps per 20ms = energetic
     _settings.swingSmoothStopMs = 2000;     // 2 second smooth stop
 
+    _settings.pushDurationPercent = 20;    // 20% push duration (matches current hardcoded value)
+    _settings.pushPowerPercent = 100;      // 100% power (matches current hardcoded value)
+
+
     _settings.checksum = calculateChecksum();
     _isDirty = true;
 }
@@ -265,7 +269,133 @@ void RuntimeConfig::notifyCallbacks(const char* key) {
     }
 }
 
-// Add these demo implementation methods at the end of RuntimeConfig.cpp:
+// ========== SWING PHYSICS SETTER IMPLEMENTATIONS ==========
+
+bool RuntimeConfig::setSwingPeriodMs(uint16_t value) {
+    if (value < 3000 || value > 12000) {  // 3-12 seconds reasonable range
+        DEBUG_PRINTLN("RuntimeConfig: Swing period out of range (3000-12000ms)");
+        return false;
+    }
+    _settings.swingPeriodMs = value;
+    _isDirty = true;
+    notifyCallbacks("swingPeriod");
+    DEBUG_PRINT("RuntimeConfig: Swing period set to ");
+    DEBUG_PRINT(value);
+    DEBUG_PRINTLN("ms");
+    return true;
+}
+
+bool RuntimeConfig::setSwingStepIntervalMs(uint16_t value) {
+    if (value < 5 || value > 100) {  // 5-100ms for smooth motion
+        DEBUG_PRINTLN("RuntimeConfig: Step interval out of range (5-100ms)");
+        return false;
+    }
+    _settings.swingStepIntervalMs = value;
+    _isDirty = true;
+    notifyCallbacks("swingStepInterval");
+    DEBUG_PRINT("RuntimeConfig: Step interval set to ");
+    DEBUG_PRINT(value);
+    DEBUG_PRINTLN("ms");
+    return true;
+}
+
+bool RuntimeConfig::setSwingMaxAngleDegrees(uint8_t value) {
+    if (value < 15 || value > 90) {  // 15-90 degrees safe range
+        DEBUG_PRINTLN("RuntimeConfig: Max angle out of range (15-90 degrees)");
+        return false;
+    }
+    _settings.swingMaxAngleDegrees = value;
+    _isDirty = true;
+    notifyCallbacks("swingMaxAngle");
+    DEBUG_PRINT("RuntimeConfig: Max swing angle set to ");
+    DEBUG_PRINT(value);
+    DEBUG_PRINTLN(" degrees");
+    return true;
+}
+
+bool RuntimeConfig::setSwingSpeedLowSteps(uint8_t value) {
+    if (value < 10 || value > 200) {  // Reasonable step range
+        DEBUG_PRINTLN("RuntimeConfig: Low speed steps out of range (10-200)");
+        return false;
+    }
+    _settings.swingSpeedLowSteps = value;
+    _isDirty = true;
+    notifyCallbacks("swingSpeedLow");
+    DEBUG_PRINT("RuntimeConfig: Low speed steps set to ");
+    DEBUG_PRINTLN(value);
+    return true;
+}
+
+bool RuntimeConfig::setSwingSpeedMediumSteps(uint8_t value) {
+    if (value < 20 || value > 300) {
+        DEBUG_PRINTLN("RuntimeConfig: Medium speed steps out of range (20-300)");
+        return false;
+    }
+    _settings.swingSpeedMediumSteps = value;
+    _isDirty = true;
+    notifyCallbacks("swingSpeedMedium");
+    DEBUG_PRINT("RuntimeConfig: Medium speed steps set to ");
+    DEBUG_PRINTLN(value);
+    return true;
+}
+
+bool RuntimeConfig::setSwingSpeedHighSteps(uint8_t value) {
+    if (value < 30 || value > 400) {
+        DEBUG_PRINTLN("RuntimeConfig: High speed steps out of range (30-400)");
+        return false;
+    }
+    _settings.swingSpeedHighSteps = value;
+    _isDirty = true;
+    notifyCallbacks("swingSpeedHigh");
+    DEBUG_PRINT("RuntimeConfig: High speed steps set to ");
+    DEBUG_PRINTLN(value);
+    return true;
+}
+
+bool RuntimeConfig::setSwingSmoothStopMs(uint16_t value) {
+    if (value < 1000 || value > 10000) {  // 1-10 seconds for smooth stopping
+        DEBUG_PRINTLN("RuntimeConfig: Smooth stop time out of range (1000-10000ms)");
+        return false;
+    }
+    _settings.swingSmoothStopMs = value;
+    _isDirty = true;
+    notifyCallbacks("swingSmoothStop");
+    DEBUG_PRINT("RuntimeConfig: Smooth stop time set to ");
+    DEBUG_PRINT(value);
+    DEBUG_PRINTLN("ms");
+    return true;
+}
+
+// ========== PENDULUM PHYSICS PARAMETERS ==========
+
+bool RuntimeConfig::setPushDurationPercent(uint8_t value) {
+    if (value < 5 || value > 50) {  // 5-50% of cycle is reasonable
+        DEBUG_PRINTLN("RuntimeConfig: Push duration out of range (5-50%)");
+        return false;
+    }
+    _settings.pushDurationPercent = value;
+    _isDirty = true;
+    notifyCallbacks("pushDuration");
+    DEBUG_PRINT("RuntimeConfig: Push duration set to ");
+    DEBUG_PRINT(value);
+    DEBUG_PRINTLN("%");
+    return true;
+}
+
+bool RuntimeConfig::setPushPowerPercent(uint8_t value) {
+    if (value < 20 || value > 100) {  // 20-100% power range
+        DEBUG_PRINTLN("RuntimeConfig: Push power out of range (20-100%)");
+        return false;
+    }
+    _settings.pushPowerPercent = value;
+    _isDirty = true;
+    notifyCallbacks("pushPower");
+    DEBUG_PRINT("RuntimeConfig: Push power set to ");
+    DEBUG_PRINT(value);
+    DEBUG_PRINTLN("%");
+    return true;
+}
+
 
 void RuntimeConfig::loadSafePreset() {
     DEBUG_PRINTLN("RuntimeConfig: Loading safe preset");
