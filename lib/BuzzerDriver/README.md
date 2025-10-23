@@ -1,36 +1,44 @@
-## **BuzzerDriver.h**
+# Buzzer Module
 
-**Purpose:**
-Defines a class for controlling a piezo buzzer connected to an Arduino pin.
+This module handles the system's piezo buzzer, providing audio feedback for alerts, user actions, and state changes.
 
-**Public Methods:**
-- **`BuzzerDriver(uint8_t pin)`**: Constructor that initialises with a specific pin.
-- **`void begin()`**: Configures the pin as an output.
-- **`void playTone(uint16_t frequency, uint32_t duration)`**: Plays a single tone at a specified frequency and duration.
-- **`void playMelody(const unsigned int frequencies[], const unsigned long durations[], int count)`**: Plays a sequence of tones (melody).
-- **`void beep(uint16_t frequency = 1000, uint32_t duration = 100)`**: Plays a short beep (default frequency 1000 Hz).
-- **`void stop()`**: Stops any ongoing tone playback.
+## Overview
 
----
+The `BuzzerDriver` class offers a convenient interface to:
+- Play single tones of specified frequency and duration.
+- Beep with a fixed or custom tone and length.
+- Play multi-tone melodies (including predefined alerts and a "give" melody).
+- Stop sound output at any time.
 
-## **BuzzerDriver.cpp**
+## Functionality
 
-**Purpose:**
-Implements all methods defined in `BuzzerDriver.h`.
+- Initialise the buzzer (set pin mode, silence by default).
+- Generate tones using Arduino’s `tone()` for simple, blocking playback.
+- Play melodies via a sequence of tones and delays.
+- Offer dedicated methods for common use cases:
+    - `beep()` – Simple single beep.
+    - `playAlertTone()` – High-pitched insistent double beep.
+    - `playGiveMelody()` – Recognisable musical sequence for the system’s "give" feedback.
+- Stop all output with `stop()` (calls `noTone()`).
 
-**Key Methods:**
-1. **`begin()`**:
-   - Configures the buzzer pin as an output and ensures no tone is playing initially.
+## Usage
 
-2. **`playTone(uint16_t frequency, uint32_t duration)`**:
-   - Uses Arduino's `tone()` function to generate sound at a specific frequency and duration.
+- Create an instance of `BuzzerDriver`, supplying the physical pin.
+- In `setup()`, call `begin()` to initialise the hardware.
+- Use methods like `playTone()`, `playAlertTone()`, or `playGiveMelody()` whenever an audible signal is needed.
+- Use `stop()` to silence the buzzer immediately if required.
 
-3. **`beep(uint16_t frequency, uint32_t duration)`**:
-   - Calls `playTone()` with default or provided values for frequency and duration.
+## Example Melodies
 
-4. **`playMelody(const unsigned int frequencies[], const unsigned long durations[], int count)`**:
-   - Iterates through arrays of frequencies and durations to play multiple tones sequentially.
-   - Adds pauses between notes for clarity.
+- **Alert Tone:** A double beep at 2000Hz for clear attention signals.
+- **"Give" Melody:** A hardcoded sequence of musical notes.
 
-5. **`stop()`**:
-   - Stops sound playback using Arduino's `noTone()` function.
+## Integration
+
+- Called from the `StateMachine` to provide clear feedback for state changes, errors, and user requests.
+- Can be used together with the `DisplayDriver` for accessible, multimodal notifications.
+
+## Future Enhancements
+
+- Refactor for non-blocking (asynchronous) playback to keep the main loop responsive.
+
