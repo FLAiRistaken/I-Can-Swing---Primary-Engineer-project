@@ -65,6 +65,11 @@ private:
     bool _returningHome;       // Flag for home return operation
     bool _emergencyHalted;     // Flag for emergency stop state
 
+    int _lastPosition;
+    unsigned long _momentumCheckTime;
+    uint16_t _swingCycleCount;
+    int _peakAmplitude;
+
     // Non-blocking swing physics
     unsigned long _lastStepTime;          // Last step timestamp
     unsigned long _swingStartTime;        // Swing start timestamp
@@ -80,6 +85,9 @@ private:
     int calculateTargetPosition(float progress);
     float calculateSinePosition(float progress);
     void updateSwingPhysics();
+
+    void checkSwingMomentum();
+    void printSwingDiagnostics();
 
     // Helper methods
     void setPinsLow();         // Set all pins low (power saving)

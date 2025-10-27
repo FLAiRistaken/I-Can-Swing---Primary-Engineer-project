@@ -135,6 +135,11 @@ void StepperDriver::startSwinging() {
     _swingStartTime = millis();
     _lastStepTime = millis();
 
+    _lastPosition = _currentPosition;
+    _momentumCheckTime = millis();
+    _swingCycleCount = 0;
+    _peakAmplitude = 0;
+
     // COMPREHENSIVE STARTUP DEBUG
     Serial.println("=== SWING STARTUP DEBUG ===");
     Serial.print("Steps per revolution: "); Serial.println(_stepsPerRevolution);
@@ -144,6 +149,9 @@ void StepperDriver::startSwinging() {
     Serial.print("Steps per interval: "); Serial.println(_stepsPerInterval);
     Serial.print("Swing period (ms): "); Serial.println(config.getSwingPeriodMs());
     Serial.print("Expected swing range: +/-"); Serial.print(_maxSwingSteps); Serial.println(" steps");
+    Serial.print("Push Duration: "); Serial.print(config.getPushDurationPercent()); Serial.println("%");
+    Serial.print("Push Power: "); Serial.print(config.getPushPowerPercent()); Serial.println("%");
+    Serial.println("Momentum tracking enabled");
     Serial.println("=== END STARTUP DEBUG ===");
 
     DEBUG_PRINTLN("StepperDriver: Started non-blocking pendulum motion");
@@ -255,6 +263,8 @@ void StepperDriver::update() {
                 updateSwingPhysics();
                 _lastStepTime = currentTime;
             }
+
+            checkSwingMomentum();
         }
     }
     else if (_swinging) {
@@ -292,40 +302,75 @@ void StepperDriver::updatePosition(int steps) {
     // Optional: Add bounds checking or wraparound logic if needed
 }
 
+// void StepperDriver::updateSwingPhysics() {
+//     // Calculate current position in swing cycle
+//     float swingProgress = calculateSwingProgress(millis());
+
+//     // Calculate target position using sine wave
+//     int targetPosition = calculateTargetPosition(swingProgress);
+
+//     // Add comprehensive debug output every 500ms
+//     static unsigned long lastDebugTime = 0;
+//     if (millis() - lastDebugTime > 500) {
+//         lastDebugTime = millis();
+//     }
+
+//     // Move toward target position (one step at a time)
+//     if (_currentPosition != targetPosition) {
+//         int stepDirection = (targetPosition > _currentPosition) ? 1 : -1;
+
+//         // Add debug for actual stepping
+//         static unsigned long lastStepDebug = 0;
+//         if (millis() - lastStepDebug > 1000) {
+//             Serial.println("STEPPING - Direction: ");
+//             Serial.println(stepDirection);
+//             lastStepDebug = millis();
+//         }
+
+//         // Take multiple steps based on speed setting
+//         for (uint8_t i = 0; i < _stepsPerInterval; i++) {
+//             if (_currentPosition != targetPosition) {
+//                 _stepper.step(stepDirection);
+//                 updatePosition(stepDirection);
+//             }
+//         }
+//     }
+// }
+
 void StepperDriver::updateSwingPhysics() {
     // Calculate current position in swing cycle
     float swingProgress = calculateSwingProgress(millis());
-
-    // Calculate target position using sine wave
     int targetPosition = calculateTargetPosition(swingProgress);
 
-    // Add comprehensive debug output every 500ms
-    static unsigned long lastDebugTime = 0;
-    if (millis() - lastDebugTime > 500) {
-        lastDebugTime = millis();
-    }
+    // ENHANCED: Adaptive step count based on position error
+    int positionError = abs(targetPosition - _currentPosition);
+    uint8_t adaptiveSteps = min(_stepsPerInterval, (uint8_t)positionError);
 
-    // Move toward target position (one step at a time)
-    if (_currentPosition != targetPosition) {
+    // Only step if we need to move
+    if (_currentPosition != targetPosition && adaptiveSteps > 0) {
         int stepDirection = (targetPosition > _currentPosition) ? 1 : -1;
 
-        // Add debug for actual stepping
-        static unsigned long lastStepDebug = 0;
-        if (millis() - lastStepDebug > 1000) {
-            Serial.println("STEPPING - Direction: ");
-            Serial.println(stepDirection);
-            lastStepDebug = millis();
-        }
+        // Take adaptive number of steps
+        for (uint8_t i = 0; i < adaptiveSteps; i++) {
+            _stepper.step(stepDirection);
+            updatePosition(stepDirection);
 
-        // Take multiple steps based on speed setting
-        for (uint8_t i = 0; i < _stepsPerInterval; i++) {
-            if (_currentPosition != targetPosition) {
-                _stepper.step(stepDirection);
-                updatePosition(stepDirection);
-            }
+            // Break early if we reach target
+            if (_currentPosition == targetPosition) break;
         }
     }
+
+    // Enhanced debug output with more physics data
+    static unsigned long lastDebugTime = 0;
+    if (millis() - lastDebugTime > 1000) {
+        Serial.print("Swing Progress: "); Serial.print(swingProgress * 100, 1); Serial.print("% ");
+        Serial.print("Target: "); Serial.print(targetPosition);
+        Serial.print(" Current: "); Serial.print(_currentPosition);
+        Serial.print(" Error: "); Serial.println(positionError);
+        lastDebugTime = millis();
+    }
 }
+
 
 
 float StepperDriver::calculateSwingProgress(unsigned long currentTime) {
@@ -343,22 +388,89 @@ int StepperDriver::calculateTargetPosition(float progress) {
     return (int)(sineValue * _maxSwingSteps);
 }
 
+// float StepperDriver::calculateSinePosition(float progress) {
+//     RuntimeConfig& config = RuntimeConfig::getInstance();
+
+//     // Get configurable push duration and power
+//     float pushDuration = config.getPushDurationPercent() / 100.0f;  // Convert % to decimal
+//     float pushPower = config.getPushPowerPercent() / 100.0f;        // Convert % to decimal
+
+//     // CONFIGURABLE PUSH: Use runtime parameters
+//     if (progress < pushDuration) {
+//         return pushPower;  // Configurable forward power for configurable duration
+//     }
+//     // COAST: For the rest of the cycle
+//     else {
+//         return 0.0f;  // Motor off, let momentum and gravity do the work
+//     }
+// }
+
 float StepperDriver::calculateSinePosition(float progress) {
     RuntimeConfig& config = RuntimeConfig::getInstance();
 
-    // Get configurable push duration and power
-    float pushDuration = config.getPushDurationPercent() / 100.0f;  // Convert % to decimal
-    float pushPower = config.getPushPowerPercent() / 100.0f;        // Convert % to decimal
+    float pushDuration = config.getPushDurationPercent() / 100.0f;
+    float pushPower = config.getPushPowerPercent() / 100.0f;
 
-    // CONFIGURABLE PUSH: Use runtime parameters
     if (progress < pushDuration) {
-        return pushPower;  // Configurable forward power for configurable duration
+        // ENHANCED: Ramp up power at start of push for smoother acceleration
+        float pushProgress = progress / pushDuration;  // 0.0 to 1.0 within push phase
+
+        // Sine-based power ramp: gentle start, peak in middle, gentle end
+        float powerCurve = sin(pushProgress * PI);  // Creates smooth bell curve
+        return pushPower * powerCurve;
     }
-    // COAST: For the rest of the cycle
     else {
-        return 0.0f;  // Motor off, let momentum and gravity do the work
+        return 0.0f;  // Coast phase - let physics take over
     }
 }
+
+void StepperDriver::checkSwingMomentum() {
+    unsigned long currentTime = millis();
+
+    // Check momentum every 2 seconds
+    if (currentTime - _momentumCheckTime >= 2000) {
+        int currentAmplitude = abs(_currentPosition);
+
+        // Track peak amplitude for this cycle
+        if (currentAmplitude > _peakAmplitude) {
+            _peakAmplitude = currentAmplitude;
+        }
+
+        // Every swing period, analyze momentum
+        RuntimeConfig& config = RuntimeConfig::getInstance();
+        if (currentTime - _swingStartTime >= config.getSwingPeriodMs()) {
+            Serial.print("Cycle "); Serial.print(_swingCycleCount);
+            Serial.print(" - Peak Amplitude: "); Serial.print(_peakAmplitude);
+            Serial.print(" steps (");
+            Serial.print((_peakAmplitude * 360.0) / _stepsPerRevolution, 1);
+            Serial.println(" degrees)");
+
+            _swingCycleCount++;
+            _peakAmplitude = 0;  // Reset for next cycle
+            _swingStartTime = currentTime;  // Reset cycle timer
+        }
+
+        _momentumCheckTime = currentTime;
+    }
+}
+
+void StepperDriver::printSwingDiagnostics() {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+
+    Serial.println("=== SWING PHYSICS DIAGNOSTICS ===");
+    Serial.print("Current Position: "); Serial.print(_currentPosition); Serial.println(" steps");
+    Serial.print("Current Angle: "); Serial.print(getCurrentAngle(), 2); Serial.println(" degrees");
+    Serial.print("Max Swing Steps: "); Serial.println(_maxSwingSteps);
+    Serial.print("Swing Period: "); Serial.print(config.getSwingPeriodMs()); Serial.println("ms");
+    Serial.print("Push Duration: "); Serial.print(config.getPushDurationPercent()); Serial.println("%");
+    Serial.print("Push Power: "); Serial.print(config.getPushPowerPercent()); Serial.println("%");
+    Serial.print("Steps Per Interval: "); Serial.println(_stepsPerInterval);
+    Serial.print("Peak Amplitude: "); Serial.print(_peakAmplitude); Serial.println(" steps");
+    Serial.println("===============================");
+}
+
+
+
 
 
 

@@ -34,6 +34,12 @@ private:
     void sendConfigPage(WiFiClient& client);
     void send404Page(WiFiClient& client);
 
+    void sendPhysicsConfigSection(WiFiClient& client);
+    void sendLiveMonitorSection(WiFiClient& client);
+    bool processAllConfigParams(String params, RuntimeConfig& config);
+    void logResponseTime(unsigned long startTime);
+
+
     // API handlers
     void handleControlAPI(WiFiClient& client, String command);
     void handleConfigAPI(WiFiClient& client, String params);
@@ -47,6 +53,8 @@ private:
     void sendSimpleCSS(WiFiClient& client);
 
     void logEvent(const String& event, const String& status);
+    String getOptimizedAjaxScript();
+    String getRecentLogsOptimized();
     String getSensorData();
     String getSystemStatus();
 };

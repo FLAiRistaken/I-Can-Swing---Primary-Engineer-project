@@ -2,7 +2,6 @@
 #include "WebServer.h"
 #include <Arduino.h>
 
-
 WebServer::WebServer(StateMachine* stateMachine, SafetyMonitor* safetyMonitor)
     : _server(80), _stateMachine(stateMachine), _safetyMonitor(safetyMonitor), _logIndex(0) {
     // Initialize logs
@@ -44,6 +43,8 @@ void WebServer::handleClient() {
     Serial.print("WebServer: ");
     Serial.println(request.substring(0, 50));
 
+    bool isAjaxRequest = (request.indexOf("/api/") >= 0);
+
     // Route requests
     if (request.indexOf("GET / ") >= 0) {
         sendHomePage(client);
@@ -67,233 +68,351 @@ void WebServer::handleClient() {
         send404Page(client);
     }
 
+    if (isAjaxRequest) {
+        // Keep connection open briefly for potential follow-up requests
+        delay(10);  // Small delay to allow browser to reuse connection
+    }
+
     client.stop();
 }
 
 // ===== PAGE HANDLERS =====
 
 void WebServer::sendHomePage(WiFiClient& client) {
+    unsigned long startTime = millis();
+
     sendPageHeader(client, "I Can Swing - Home");
 
-    client.println("<h2>System Status</h2>");
-    client.println("<div class='status-grid'>");
+    // Build entire home page efficiently
+    String homePage;
+    homePage.reserve(3072);
 
-    // System state
-    client.print("<div class='status-item'><strong>State:</strong> ");
-    client.print(_stateMachine->getStateString());
-    client.println("</div>");
+    homePage += "<h2>System Status</h2>";
 
-    client.print("<div class='status-item'><strong>Speed:</strong> ");
-    client.print(_stateMachine->getSpeedString());
-    client.println("</div>");
+    // System state overview
+    homePage += "<div class=\"status-grid\">";
+    homePage += "<div class=\"status-item\"><strong>State:</strong><br>" + String(_stateMachine->getStateString()) + "</div>";
+    homePage += "<div class=\"status-item\"><strong>Speed:</strong><br>" + String(_stateMachine->getSpeedString()) + "</div>";
 
-    // Sensor data
-    String sensorData = getSensorData();
-    client.println(sensorData);
-
-    client.println("</div>");
-
-    // Quick actions
-    client.println("<h2>Quick Actions</h2>");
-    client.println("<div class='button-grid'>");
-    client.println("<a href='/control' class='btn btn-primary'>Control Panel</a>");
-    client.println("<a href='/config' class='btn btn-secondary'>Configuration</a>");
-    client.println("<a href='#' onclick='refresh()' class='btn btn-info'>Refresh</a>");
-    client.println("</div>");
-
-    // Recent logs
-    client.println("<h2>Recent Activity</h2>");
-    client.println("<div class='log-container'>");
-    for (int i = 0; i < MAX_LOGS; i++) {
-        int idx = (_logIndex - 1 - i + MAX_LOGS) % MAX_LOGS;
-        if (_logs[idx].timestamp > 0) {
-            client.print("<div class='log-entry'>");
-            client.print(_logs[idx].event);
-            client.print(": ");
-            client.print(_logs[idx].status);
-            client.println("</div>");
-        }
+    // Safety status with proper method
+    SafetyMonitor::SafetyStatus safetyStatus = _safetyMonitor->getCurrentStatus();
+    homePage += "<div class=\"status-item\"><strong>Safety:</strong><br>";
+    switch(safetyStatus) {
+        case SafetyMonitor::STATUS_OK:
+            homePage += "<span style=\"color: green\">✅ All Clear</span>";
+            break;
+        case SafetyMonitor::STATUS_WARNING:
+            homePage += "<span style=\"color: orange\">⚠️ Warning</span>";
+            break;
+        case SafetyMonitor::STATUS_ERROR:
+            homePage += "<span style=\"color: red\">❌ Error</span>";
+            break;
+        case SafetyMonitor::STATUS_EMERGENCY:
+            homePage += "<span style=\"color: red; font-weight: bold\">🚨 Emergency</span>";
+            break;
+        default:
+            homePage += "<span style=\"color: gray\">❓ Unknown</span>";
     }
-    client.println("</div>");
+    homePage += "</div>";
 
-    // Auto-refresh script
-    client.println("<script>");
-    client.println("function refresh() { location.reload(); }");
-    client.println("setInterval(refresh, 10000);"); // Auto-refresh every 10 seconds
-    client.println("</script>");
+    // System uptime
+    unsigned long seconds = millis() / 1000;
+    unsigned long hours = seconds / 3600;
+    unsigned long minutes = (seconds % 3600) / 60;
+    seconds = seconds % 60;
+    homePage += "<div class=\"status-item\"><strong>Uptime:</strong><br>" + String(hours) + "h " + String(minutes) + "m " + String(seconds) + "s</div>";
+    homePage += "</div>";
 
-    sendPageFooter(client);
+    client.print(homePage);  // Send first chunk
+
+    // Sensor data section
+    String sensorData = getSensorData();
+    client.print(sensorData);
+
+    // Quick actions section
+    String quickActions;
+    quickActions.reserve(1024);
+    quickActions += "<h2>Quick Actions</h2>";
+    quickActions += "<div class=\"button-grid\">";
+    quickActions += "<a href=\"/control\" class=\"btn btn-primary btn-large\">🎮 Control Panel</a>";
+    quickActions += "<a href=\"/config\" class=\"btn btn-secondary btn-large\">⚙️ Configuration</a>";
+    quickActions += "<button onclick=\"location.reload()\" class=\"btn btn-info\">🔄 Refresh</button>";
+
+    // Context-sensitive quick controls
+    if (_stateMachine->getCurrentState() == StateMachine::STATE_IDLE) {
+        quickActions += "<a href=\"/api/control?cmd=speed_low\" class=\"btn btn-success\">🚀 Start Low Speed</a>";
+    } else if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
+        quickActions += "<a href=\"/api/control?cmd=stop\" class=\"btn btn-warning\">⏹️ Stop Swing</a>";
+    }
+    quickActions += "<a href=\"/api/control?cmd=emergency\" class=\"btn btn-danger\">🚨 Emergency</a>";
+    quickActions += "</div>";
+
+    client.print(quickActions);
+
+    // Recent activity logs
+    String recentLogs = getRecentLogsOptimized();
+    client.print(recentLogs);
+
+    // Auto-refresh (less aggressive than before)
+    client.print("<script>setTimeout(() => location.reload(), 30000);</script>");  // 30 second refresh
+    client.print("</main></body></html>");
+
+    logResponseTime(startTime);
 }
+
 
 void WebServer::sendControlPage(WiFiClient& client) {
-    sendPageHeader(client, "I Can Swing - Control");
+    unsigned long startTime = millis();
 
-    client.println("<h2>System Control</h2>");
-    client.println("<p>Use these controls to operate the swing system.</p>");
+    sendPageHeader(client, "Swing Control");
 
-    // Main controls
-    client.println("<div class='control-section'>");
-    client.println("<h3>Main Controls</h3>");
-    client.println("<div class='button-grid'>");
+    // Build control page efficiently with AJAX buttons
+    String controlPage;
+    controlPage.reserve(2048);
 
-    if (_stateMachine->getCurrentState() == StateMachine::STATE_IDLE) {
-        client.println("<button onclick='sendCommand(\"start\")' class='btn btn-success btn-large'>START SWING</button>");
-    } else if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
-        client.println("<button onclick='sendCommand(\"stop\")' class='btn btn-warning btn-large'>STOP SWING</button>");
-    } else {
-        client.println("<button disabled class='btn btn-secondary btn-large'>SYSTEM BUSY</button>");
+    controlPage += "<h2>Swing Control Panel</h2>";
+
+    // Current Status Section (will be updated via AJAX)
+    controlPage += "<div class=\"status-grid\">";
+    controlPage += "<div class=\"status-item\"><strong>System State:</strong><br>" + String(_stateMachine->getStateString()) + "</div>";
+    controlPage += "<div class=\"status-item\"><strong>Current Speed:</strong><br>" + String(_stateMachine->getSpeedString()) + "</div>";
+
+    // Safety status with proper method
+    SafetyMonitor::SafetyStatus safetyStatus = _safetyMonitor->getCurrentStatus();
+    controlPage += "<div class=\"status-item\"><strong>Safety Status:</strong><br>";
+    switch(safetyStatus) {
+        case SafetyMonitor::STATUS_OK:
+            controlPage += "<span style=\"color: green\">✅ All Clear</span>";
+            break;
+        case SafetyMonitor::STATUS_WARNING:
+            controlPage += "<span style=\"color: orange\">⚠️ Warning</span>";
+            break;
+        case SafetyMonitor::STATUS_ERROR:
+            controlPage += "<span style=\"color: red\">❌ Error</span>";
+            break;
+        case SafetyMonitor::STATUS_EMERGENCY:
+            controlPage += "<span style=\"color: red; font-weight: bold\">🚨 Emergency</span>";
+            break;
+        default:
+            controlPage += "<span style=\"color: gray\">❓ Unknown</span>";
     }
+    controlPage += "</div>";
 
-    client.println("<button onclick='sendCommand(\"emergency\")' class='btn btn-danger btn-large'>EMERGENCY STOP</button>");
-    client.println("</div>");
-    client.println("</div>");
+    unsigned long seconds = millis() / 1000;
+    controlPage += "<div class=\"status-item\"><strong>Uptime:</strong><br>" + String(seconds) + " seconds</div>";
+    controlPage += "</div>";
 
-    // Speed controls
-    client.println("<div class='control-section'>");
-    client.println("<h3>Speed Control</h3>");
-    client.println("<div class='button-grid'>");
-    client.println("<button onclick='sendCommand(\"speed_low\")' class='btn btn-info'>Low Speed</button>");
-    client.println("<button onclick='sendCommand(\"speed_medium\")' class='btn btn-info'>Medium Speed</button>");
-    client.println("<button onclick='sendCommand(\"speed_high\")' class='btn btn-info'>High Speed</button>");
-    client.println("</div>");
-    client.println("</div>");
+    // AJAX-enabled Main Control Buttons
+    controlPage += "<div class=\"control-section\">";
+    controlPage += "<h3>🎢 Swing Controls</h3>";
+    controlPage += "<div class=\"button-grid\">";
+    controlPage += "<button onclick=\"cmd('speed_low')\" class=\"btn btn-success btn-large\">🐌 Low Speed</button>";
+    controlPage += "<button onclick=\"cmd('speed_medium')\" class=\"btn btn-warning btn-large\">🚶 Medium Speed</button>";
+    controlPage += "<button onclick=\"cmd('speed_high')\" class=\"btn btn-info btn-large\">🏃 High Speed</button>";
+    controlPage += "<button onclick=\"cmd('stop')\" class=\"btn btn-primary btn-large\">⏹️ Stop</button>";
+    controlPage += "<button onclick=\"cmd('emergency')\" class=\"btn btn-danger btn-large\">🚨 EMERGENCY</button>";
+    controlPage += "</div></div>";
 
-    // Door controls
-    client.println("<div class='control-section'>");
-    client.println("<h3>Door Control</h3>");
-    client.println("<div class='button-grid'>");
-    client.println("<button onclick='sendCommand(\"door_open\")' class='btn btn-primary'>Open Door</button>");
-    client.println("<button onclick='sendCommand(\"door_close\")' class='btn btn-primary'>Close Door</button>");
-    client.println("</div>");
-    client.println("</div>");
+    // AJAX-enabled Door Controls
+    controlPage += "<div class=\"control-section\">";
+    controlPage += "<h3>🚪 Door Controls</h3>";
+    controlPage += "<div class=\"button-grid\">";
+    controlPage += "<button onclick=\"cmd('door_open')\" class=\"btn btn-success\">🔓 Open Doors</button>";
+    controlPage += "<button onclick=\"cmd('door_close')\" class=\"btn btn-secondary\">🔒 Close Doors</button>";
+    controlPage += "</div></div>";
 
-    // Audio controls
-    client.println("<div class='control-section'>");
-    client.println("<h3>Audio Feedback</h3>");
-    client.println("<div class='button-grid'>");
-    client.println("<button onclick='sendCommand(\"alert\")' class='btn btn-secondary'>Alert Tone</button>");
-    client.println("<button onclick='sendCommand(\"melody\")' class='btn btn-secondary'>Give Melody</button>");
-    client.println("</div>");
-    client.println("</div>");
+    client.print(controlPage);
 
-    // JavaScript for control commands
-    client.println("<script>");
-    client.println("function sendCommand(cmd) {");
-    client.println("  fetch('/api/control?cmd=' + cmd)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      alert(data.message);");
-    client.println("      setTimeout(() => location.reload(), 1000);");
-    client.println("    })");
-    client.println("    .catch(err => alert('Error: ' + err));");
-    client.println("}");
-    client.println("</script>");
+    // Live physics data section
+    String liveData;
+    liveData.reserve(512);
+    liveData += "<div class=\"control-section\">";
+    liveData += "<h3>📊 Live Physics Data</h3>";
+    liveData += "<div class=\"physics-monitor\">";
 
-    sendPageFooter(client);
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    liveData += "<div class=\"physics-value\">Push: " + String(config.getPushDurationPercent()) + "% duration, ";
+    liveData += String(config.getPushPowerPercent()) + "% power</div>";
+    liveData += "<div class=\"physics-value\">Period: " + String(config.getSwingPeriodMs()) + "ms, ";
+    liveData += "Max: " + String(config.getSwingMaxAngleDegrees()) + "°</div>";
+    liveData += "</div>";
+    liveData += "<button onclick=\"location.reload()\" class=\"btn btn-info\">🔄 Full Refresh</button>";
+    liveData += "</div>";
+
+    client.print(liveData);
+
+    // Add the optimized AJAX script
+    String ajaxScript = getOptimizedAjaxScript();
+    client.print(ajaxScript);
+
+    client.print("</main></body></html>");
+
+    logResponseTime(startTime);
 }
 
+
+
+// Add this optimized method to WebServer.cpp
+void WebServer::sendPhysicsConfigSection(WiFiClient& client) {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    String physics;
+    physics.reserve(2048);  // Pre-allocate for performance
+
+    physics += "<div class=\"config-section\">";
+    physics += "<h3>🎢 Pendulum Physics Settings</h3>";
+
+    physics += "<label>Push Duration (%): <input type=\"number\" name=\"pushDuration\" value=\"";
+    physics += String(config.getPushDurationPercent());
+    physics += "\" min=\"5\" max=\"50\" step=\"1\"></label>";
+    physics += "<div class=\"physics-help\">Push Duration: Percentage of swing cycle to apply power (20% = natural, 30% = more aggressive)</div>";
+
+    physics += "<label>Push Power (%): <input type=\"number\" name=\"pushPower\" value=\"";
+    physics += String(config.getPushPowerPercent());
+    physics += "\" min=\"20\" max=\"100\" step=\"5\"></label>";
+    physics += "<div class=\"physics-help\">Push Power: Motor power during push phase (100% = maximum torque, 80% = gentler motion)</div>";
+
+    physics += "<label>Swing Steps - Low Speed: <input type=\"number\" name=\"swingStepsLow\" value=\"";
+    physics += String(config.getSwingSpeedLowSteps());
+    physics += "\" min=\"10\" max=\"200\" step=\"5\"></label>";
+
+    physics += "<label>Swing Steps - Medium Speed: <input type=\"number\" name=\"swingStepsMed\" value=\"";
+    physics += String(config.getSwingSpeedMediumSteps());
+    physics += "\" min=\"20\" max=\"300\" step=\"5\"></label>";
+
+    physics += "<label>Swing Steps - High Speed: <input type=\"number\" name=\"swingStepsHigh\" value=\"";
+    physics += String(config.getSwingSpeedHighSteps());
+    physics += "\" min=\"30\" max=\"400\" step=\"5\"></label>";
+    physics += "<div class=\"physics-help\">Swing Steps: Number of motor steps per interval (higher = more powerful swinging)</div>";
+
+    physics += "<label>Step Interval (ms): <input type=\"number\" name=\"stepInterval\" value=\"";
+    physics += String(config.getSwingStepIntervalMs());
+    physics += "\" min=\"5\" max=\"100\" step=\"1\"></label>";
+    physics += "<div class=\"physics-help\">Step Interval: Time between motor updates in milliseconds (lower = smoother motion)</div>";
+
+    physics += "</div>";
+
+    client.print(physics);  // Single efficient send
+}
+
+// Add this optimized live monitor method
+void WebServer::sendLiveMonitorSection(WiFiClient& client) {
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    String monitor;
+    monitor.reserve(1024);
+
+    monitor += "<div class=\"config-section\">";
+    monitor += "<h3>📊 Live Physics Monitor</h3>";
+    monitor += "<div id=\"physicsData\"><div class=\"physics-monitor\">";
+
+    // Current settings display
+    monitor += "<div class=\"physics-value\"><strong>Current Settings:</strong><br>";
+    monitor += "Push Duration: " + String(config.getPushDurationPercent()) + "%<br>";
+    monitor += "Push Power: " + String(config.getPushPowerPercent()) + "%<br>";
+    monitor += "Swing Period: " + String(config.getSwingPeriodMs()) + "ms<br>";
+    monitor += "Max Angle: " + String(config.getSwingMaxAngleDegrees()) + "°</div>";
+
+    // System status display
+    monitor += "<div class=\"physics-value\"><strong>System Status:</strong><br>";
+    monitor += "State: " + String(_stateMachine->getStateString()) + "<br>";
+    monitor += "Speed: " + String(_stateMachine->getSpeedString()) + "<br>";
+    monitor += "Uptime: " + String(millis()/1000) + "s</div>";
+
+    monitor += "</div></div>";
+
+    // Manual refresh only (no auto-refresh for performance)
+    monitor += "<button onclick=\"location.reload()\">🔄 Refresh Data</button>";
+    monitor += "</div>";
+
+    client.print(monitor);
+}
+
+
+
 void WebServer::sendConfigPage(WiFiClient& client) {
-    sendPageHeader(client, "I Can Swing - Configuration");
+    unsigned long startTime = millis();
+
+    sendPageHeader(client, "Configuration");
 
     RuntimeConfig& config = RuntimeConfig::getInstance();
 
-    client.println("<h2>System Configuration</h2>");
-    client.println("<form onsubmit='saveConfig(event)'>");
+    String configPage;
+    configPage.reserve(4096);
 
-    // Safety settings
-    client.println("<div class='config-section'>");
-    client.println("<h3>Safety Settings</h3>");
+    configPage += "<h2>System Configuration</h2>";
+    configPage += "<form method='GET' action='/api/config'>";
 
-    client.print("<label>Warning Distance (cm): <input type='number' name='warningDistance' value='");
-    client.print(config.getFrontWarningDistance());
-    client.println("' min='10' max='200'></label>");
+    // Safety Settings Section - USING THE GENERIC SETTERS
+    configPage += "<div class=\"config-section\">";
+    configPage += "<h3>⚠️ Safety Settings</h3>";
+    configPage += "<div class=\"physics-help\">These distances apply to both front and rear sensors</div>";
 
-    client.print("<label>Critical Distance (cm): <input type='number' name='criticalDistance' value='");
-    client.print(config.getFrontCriticalDistance());
-    client.println("' min='5' max='50'></label>");
+    configPage += "<label>Warning Distance (cm): <input type=\"number\" name=\"warningDistance\" value=\"";
+    configPage += String(config.getFrontWarningDistance()); // Same as rear, so use either
+    configPage += "\" min=\"10\" max=\"200\" step=\"1\"></label>";
+    configPage += "<div class=\"physics-help\">Distance at which the system gives a warning but continues operation</div>";
 
-    client.print("<label>Pressure Threshold: <input type='number' name='pressureThreshold' value='");
-    client.print(config.getPressureThreshold());
-    client.println("' min='100' max='900'></label>");
+    configPage += "<label>Critical Distance (cm): <input type=\"number\" name=\"criticalDistance\" value=\"";
+    configPage += String(config.getFrontCriticalDistance()); // Same as rear, so use either
+    configPage += "\" min=\"5\" max=\"100\" step=\"1\"></label>";
+    configPage += "<div class=\"physics-help\">Distance at which the system immediately stops for safety</div>";
+    configPage += "</div>";
 
-    client.println("</div>");
+    // Motor Speed Settings Section
+    configPage += "<div class=\"config-section\">";
+    configPage += "<h3>⚙️ Motor Speed Settings</h3>";
+    configPage += "<label>Low Speed (RPM): <input type=\"number\" name=\"speedLow\" value=\"";
+    configPage += String(config.getSpeedLow());
+    configPage += "\" min=\"10\" max=\"100\" step=\"5\"></label>";
+    configPage += "<label>Medium Speed (RPM): <input type=\"number\" name=\"speedMed\" value=\"";
+    configPage += String(config.getSpeedMedium());
+    configPage += "\" min=\"20\" max=\"150\" step=\"5\"></label>";
+    configPage += "<label>High Speed (RPM): <input type=\"number\" name=\"speedHigh\" value=\"";
+    configPage += String(config.getSpeedHigh());
+    configPage += "\" min=\"30\" max=\"200\" step=\"5\"></label>";
+    configPage += "</div>";
 
-    // Swing settings
-    client.println("<div class='config-section'>");
-    client.println("<h3>Swing Motion Settings</h3>");
+    // Basic Swing Settings Section
+    configPage += "<div class=\"config-section\">";
+    configPage += "<h3>🎢 Basic Swing Settings</h3>";
+    configPage += "<label>Swing Period (ms): <input type=\"number\" name=\"swingPeriod\" value=\"";
+    configPage += String(config.getSwingPeriodMs());
+    configPage += "\" min=\"3000\" max=\"12000\" step=\"100\"></label>";
+    configPage += "<div class=\"physics-help\">Total time for one complete swing cycle (lower = faster swinging)</div>";
 
-    client.print("<label>Swing Period (ms): <input type='number' name='swingPeriod' value='");
-    client.print(config.getSwingPeriodMs());
-    client.println("' min='3000' max='8000'></label>");
+    configPage += "<label>Max Swing Angle (degrees): <input type=\"number\" name=\"maxAngle\" value=\"";
+    configPage += String(config.getSwingMaxAngleDegrees());
+    configPage += "\" min=\"15\" max=\"90\" step=\"5\"></label>";
+    configPage += "<div class=\"physics-help\">Maximum swing angle from center position (safety limit)</div>";
 
-    client.print("<label>Max Swing Angle (degrees): <input type='number' name='swingAngle' value='");
-    client.print(config.getSwingMaxAngleDegrees());
-    client.println("' min='20' max='90'></label>");
+    configPage += "<label>Smooth Stop Time (ms): <input type=\"number\" name=\"smoothStop\" value=\"";
+    configPage += String(config.getSwingSmoothStopMs());
+    configPage += "\" min=\"1000\" max=\"10000\" step=\"500\"></label>";
+    configPage += "<div class=\"physics-help\">Time to gradually stop the swing (longer = gentler stop)</div>";
+    configPage += "</div>";
 
-    client.print("<label>Smooth Stop Time (ms): <input type='number' name='smoothStop' value='");
-    client.print(config.getSwingSmoothStopMs());
-    client.println("' min='1000' max='5000'></label>");
+    client.print(configPage);
 
-    client.println("</div>");
+    // Send physics section (using our optimized method)
+    sendPhysicsConfigSection(client);
 
-    // System settings
-    client.println("<div class='config-section'>");
-    client.println("<h3>System Settings</h3>");
+    // Submit button and form close
+    String formEnd;
+    formEnd.reserve(256);
+    formEnd += "<div class=\"config-section\">";
+    formEnd += "<button type=\"submit\" class=\"btn btn-primary btn-large\">💾 Save All Settings</button>";
+    formEnd += "<button type=\"button\" class=\"btn btn-secondary\" onclick=\"location.reload()\">🔄 Reset Form</button>";
+    formEnd += "</div></form>";
 
-    client.print("<label>Door Timeout (ms): <input type='number' name='doorTimeout' value='");
-    client.print(config.getDoorTimeoutMs());
-    client.println("' min='5000' max='30000'></label>");
+    client.print(formEnd);
 
-    client.print("<label>Buzzer Volume (0-10): <input type='number' name='buzzerVolume' value='");
-    client.print(config.getBuzzerVolume());
-    client.println("' min='0' max='10'></label>");
+    // Send live monitor section
+    sendLiveMonitorSection(client);
 
-    client.print("<label><input type='checkbox' name='audioFeedback'");
-    if (config.isAudioFeedbackEnabled()) client.print(" checked");
-    client.println("> Audio Feedback Enabled</label>");
+    client.print("</main></body></html>");
 
-    client.print("<label><input type='checkbox' name='voiceRecognition'");
-    if (config.isVoiceRecognitionEnabled()) client.print(" checked");
-    client.println("> Voice Recognition Enabled</label>");
-
-    client.println("</div>");
-
-    client.println("<div class='button-grid'>");
-    client.println("<button type='submit' class='btn btn-success'>Save Configuration</button>");
-    client.println("<button type='button' onclick='loadDefaults()' class='btn btn-warning'>Load Defaults</button>");
-    client.println("</div>");
-
-    client.println("</form>");
-
-    // Configuration JavaScript
-    client.println("<script>");
-    client.println("function saveConfig(event) {");
-    client.println("  event.preventDefault();");
-    client.println("  const form = event.target;");
-    client.println("  const formData = new FormData(form);");
-    client.println("  const params = new URLSearchParams(formData).toString();");
-    client.println("  fetch('/api/config?' + params)");
-    client.println("    .then(response => response.json())");
-    client.println("    .then(data => {");
-    client.println("      alert(data.message);");
-    client.println("      if (data.success) setTimeout(() => location.reload(), 1000);");
-    client.println("    })");
-    client.println("    .catch(err => alert('Error: ' + err));");
-    client.println("}");
-    client.println("function loadDefaults() {");
-    client.println("  if (confirm('Load default settings? This will overwrite current configuration.')) {");
-    client.println("    fetch('/api/config?action=defaults')");
-    client.println("      .then(response => response.json())");
-    client.println("      .then(data => {");
-    client.println("        alert(data.message);");
-    client.println("        location.reload();");
-    client.println("      });");
-    client.println("  }");
-    client.println("}");
-    client.println("</script>");
-
-    sendPageFooter(client);
+    logResponseTime(startTime);
 }
+
 
 void WebServer::send404Page(WiFiClient& client) {
     sendHttpHeader(client);
@@ -304,147 +423,232 @@ void WebServer::send404Page(WiFiClient& client) {
 
 // ===== API HANDLERS =====
 
+// Keep handleControlAPI() minimal for fast AJAX responses
 void WebServer::handleControlAPI(WiFiClient& client, String command) {
-    String response = "{";
-    bool success = true;
+    unsigned long startTime = millis();
+
+    bool success = false;
     String message = "";
 
-    if (command == "start") {
-        _stateMachine->processEvent(StateMachine::EVENT_START_PRESSED);
-        message = "Start command sent";
-    } else if (command == "stop") {
-        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
-        message = "Stop command sent";
-    } else if (command == "emergency") {
-        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
-        message = "Emergency stop activated";
-    } else if (command == "speed_low") {
+    // Process commands quickly
+    if (command == "speed_low") {
         _stateMachine->processEvent(StateMachine::EVENT_SPEED_SET_LOW);
-        message = "Speed set to LOW";
-    } else if (command == "speed_medium") {
+        success = true;
+        message = "Low speed set";
+    }
+    else if (command == "speed_medium") {
         _stateMachine->processEvent(StateMachine::EVENT_SPEED_SET_MEDIUM);
-        message = "Speed set to MEDIUM";
-    } else if (command == "speed_high") {
+        success = true;
+        message = "Medium speed set";
+    }
+    else if (command == "speed_high") {
         _stateMachine->processEvent(StateMachine::EVENT_SPEED_SET_HIGH);
-        message = "Speed set to HIGH";
-    } else if (command == "door_open") {
+        success = true;
+        message = "High speed set";
+    }
+    else if (command == "stop") {
+        _stateMachine->processEvent(StateMachine::EVENT_STOP_PRESSED);
+        success = true;
+        message = "Stopped";
+    }
+    else if (command == "emergency") {
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
+        success = true;
+        message = "Emergency stop activated";
+    }
+    else if (command == "door_open") {
         _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPEN_PRESSED);
-        message = "Door open command sent";
-    } else if (command == "door_close") {
+        success = true;
+        message = "Opening doors";
+    }
+    else if (command == "door_close") {
         _stateMachine->processEvent(StateMachine::EVENT_DOOR_CLOSE_PRESSED);
-        message = "Door close command sent";
-    } else if (command == "alert") {
-        _stateMachine->processEvent(StateMachine::EVENT_ALERT_PRESSED);
-        message = "Alert tone played";
-    } else if (command == "melody") {
-        _stateMachine->processEvent(StateMachine::EVENT_GIVE_MELODY_PRESSED);
-        message = "Give melody played";
-    } else {
-        success = false;
-        message = "Unknown command: " + command;
+        success = true;
+        message = "Closing doors";
+    }
+    else {
+        message = "Unknown command";
     }
 
-    response += "\"success\": " + String(success ? "true" : "false") + ",";
-    response += "\"message\": \"" + message + "\"";
-    response += "}";
+    // Ultra-compact JSON response for speed
+    String response = "{\"success\":";
+    response += (success ? "true" : "false");
+    response += ",\"message\":\"";
+    response += message;
+    response += "\"}";
 
-    logEvent("Control", command + " -> " + message);
     sendJsonResponse(client, response);
+    logResponseTime(startTime);
 }
+
 
 void WebServer::handleConfigAPI(WiFiClient& client, String params) {
+    unsigned long startTime = millis();
+
     RuntimeConfig& config = RuntimeConfig::getInstance();
-    String response = "{";
     bool success = true;
-    String message = "";
+    String message = "Settings updated successfully";
 
-    if (params.indexOf("action=defaults") >= 0) {
-        config.loadDefaultPreset();
-        message = "Default configuration loaded";
-    } else {
-        // Parse and apply configuration parameters
-        if (params.indexOf("warningDistance=") >= 0) {
-            int start = params.indexOf("warningDistance=") + 16;
-            int end = params.indexOf("&", start);
-            if (end == -1) end = params.length();
-            float value = params.substring(start, end).toFloat();
-            if (!config.setWarningDistance(value)) {
-                success = false;
-                message = "Invalid warning distance";
-            }
-        }
+    // Efficient parameter processing using helper method
+    if (!processAllConfigParams(params, config)) {
+        success = false;
+        message = "One or more parameters were invalid";
+    }
 
-        if (params.indexOf("criticalDistance=") >= 0) {
-            int start = params.indexOf("criticalDistance=") + 17;
-            int end = params.indexOf("&", start);
-            if (end == -1) end = params.length();
-            float value = params.substring(start, end).toFloat();
-            if (!config.setCriticalDistance(value)) {
-                success = false;
-                message = "Invalid critical distance";
-            }
-        }
+    // Auto-save to EEPROM if any changes were made
+    if (success) {
+        config.save();
+        logEvent("Config", "Settings saved");
+    }
 
-        if (params.indexOf("pressureThreshold=") >= 0) {
-            int start = params.indexOf("pressureThreshold=") + 18;
-            int end = params.indexOf("&", start);
-            if (end == -1) end = params.length();
-            uint16_t value = params.substring(start, end).toInt();
-            if (!config.setPressureThreshold(value)) {
-                success = false;
-                message = "Invalid pressure threshold";
-            }
-        }
+    // Single JSON response
+    String response;
+    response.reserve(256);
+    response += "{\"success\":";
+    response += (success ? "true" : "false");
+    response += ",\"message\":\"";
+    response += message;
+    response += "\",\"redirect\":\"/config\"}";
 
-        if (params.indexOf("doorTimeout=") >= 0) {
-            int start = params.indexOf("doorTimeout=") + 12;
-            int end = params.indexOf("&", start);
-            if (end == -1) end = params.length();
-            unsigned long value = params.substring(start, end).toInt();
-            if (!config.setDoorTimeoutMs(value)) {
-                success = false;
-                message = "Invalid door timeout";
-            }
-        }
+    sendJsonResponse(client, response);
+    logResponseTime(startTime);
+}
 
-        if (params.indexOf("buzzerVolume=") >= 0) {
-            int start = params.indexOf("buzzerVolume=") + 13;
-            int end = params.indexOf("&", start);
-            if (end == -1) end = params.length();
-            uint8_t value = params.substring(start, end).toInt();
-            if (!config.setBuzzerVolume(value)) {
-                success = false;
-                message = "Invalid buzzer volume";
-            }
-        }
+// Helper method for processing parameters efficiently
+// Replace the existing processAllConfigParams method with this Arduino-compatible version:
+bool WebServer::processAllConfigParams(String params, RuntimeConfig& config) {
+    bool allSuccess = true;
 
-        // Handle checkboxes
-        config.setAudioFeedbackEnabled(params.indexOf("audioFeedback=on") >= 0);
-        config.setVoiceRecognitionEnabled(params.indexOf("voiceRecognition=on") >= 0);
-
-        if (success) {
-            config.save();
-            message = "Configuration saved successfully";
+    // Handle safety distances using the generic setters
+    if (params.indexOf("warningDistance=") >= 0) {
+        int start = params.indexOf("warningDistance=") + 16;
+        int end = params.indexOf("&", start);
+        if (end == -1) end = params.length();
+        float value = params.substring(start, end).toFloat();
+        if (!config.setWarningDistance(value)) {
+            allSuccess = false;
+            Serial.println("Failed to set warning distance");
         }
     }
 
-    response += "\"success\": " + String(success ? "true" : "false") + ",";
-    response += "\"message\": \"" + message + "\"";
-    response += "}";
+    if (params.indexOf("criticalDistance=") >= 0) {
+        int start = params.indexOf("criticalDistance=") + 17;
+        int end = params.indexOf("&", start);
+        if (end == -1) end = params.length();
+        float value = params.substring(start, end).toFloat();
+        if (!config.setCriticalDistance(value)) {
+            allSuccess = false;
+            Serial.println("Failed to set critical distance");
+        }
+    }
 
-    logEvent("Config", message);
-    sendJsonResponse(client, response);
+    // Handle integer parameters (more Arduino-compatible approach)
+    struct IntParam {
+        const char* name;
+        int nameLen;
+        bool (RuntimeConfig::*setter)(int);
+    };
+
+    IntParam intParams[] = {
+        {"pushDuration=", 13, nullptr},  // We'll handle these manually since member function pointers are complex
+        {"pushPower=", 10, nullptr},
+        {"swingStepsLow=", 14, nullptr},
+        {"swingStepsMed=", 14, nullptr},
+        {"swingStepsHigh=", 15, nullptr},
+        {"stepInterval=", 13, nullptr},
+        {"swingPeriod=", 12, nullptr},
+        {"maxAngle=", 9, nullptr},
+        {"smoothStop=", 11, nullptr},
+        {"speedLow=", 9, nullptr},
+        {"speedMed=", 9, nullptr},
+        {"speedHigh=", 10, nullptr}
+    };
+
+    // Manual handling for better Arduino compatibility
+    for (int i = 0; i < 12; i++) {
+        int pos = params.indexOf(intParams[i].name);
+        if (pos >= 0) {
+            int start = pos + intParams[i].nameLen;
+            int end = params.indexOf("&", start);
+            if (end == -1) end = params.length();
+            int value = params.substring(start, end).toInt();
+
+            // Handle each parameter explicitly
+            bool result = false;
+            switch(i) {
+                case 0: result = config.setPushDurationPercent(value); break;
+                case 1: result = config.setPushPowerPercent(value); break;
+                case 2: result = config.setSwingSpeedLowSteps(value); break;
+                case 3: result = config.setSwingSpeedMediumSteps(value); break;
+                case 4: result = config.setSwingSpeedHighSteps(value); break;
+                case 5: result = config.setSwingStepIntervalMs(value); break;
+                case 6: result = config.setSwingPeriodMs(value); break;
+                case 7: result = config.setSwingMaxAngleDegrees(value); break;
+                case 8: result = config.setSwingSmoothStopMs(value); break;
+                case 9: result = config.setSpeedLow(value); break;
+                case 10: result = config.setSpeedMedium(value); break;
+                case 11: result = config.setSpeedHigh(value); break;
+            }
+
+            if (!result) {
+                allSuccess = false;
+                Serial.print("Failed to set parameter: ");
+                Serial.println(intParams[i].name);
+            }
+        }
+    }
+
+    return allSuccess;
 }
 
+
+
+// Enhanced handleStatusAPI() method for AJAX status updates
 void WebServer::handleStatusAPI(WiFiClient& client) {
-    String response = "{";
-    response += "\"state\": \"" + String(_stateMachine->getStateString()) + "\",";
-    response += "\"speed\": \"" + String(_stateMachine->getSpeedString()) + "\",";
-    response += "\"sensorData\": " + getSensorData();
+    unsigned long startTime = millis();
+
+    // Create compact JSON status response
+    String response;
+    response.reserve(512);
+
+    response += "{";
+    response += "\"state\":\"" + String(_stateMachine->getStateString()) + "\",";
+    response += "\"speed\":\"" + String(_stateMachine->getSpeedString()) + "\",";
+
+    // Safety status
+    SafetyMonitor::SafetyStatus safetyStatus = _safetyMonitor->getCurrentStatus();
+    response += "\"safety\":\"";
+    switch(safetyStatus) {
+        case SafetyMonitor::STATUS_OK:
+            response += "<span style='color:green'>✅ All Clear</span>";
+            break;
+        case SafetyMonitor::STATUS_WARNING:
+            response += "<span style='color:orange'>⚠️ Warning</span>";
+            break;
+        case SafetyMonitor::STATUS_ERROR:
+            response += "<span style='color:red'>❌ Error</span>";
+            break;
+        case SafetyMonitor::STATUS_EMERGENCY:
+            response += "<span style='color:red;font-weight:bold'>🚨 Emergency</span>";
+            break;
+        default:
+            response += "❓ Unknown";
+    }
+    response += "\",";
+
+    response += "\"uptime\":" + String(millis() / 1000) + ",";
+
+    // Add sensor data for more detailed status
+    response += "\"frontDistance\":" + String(_safetyMonitor->getFrontDistance(), 1) + ",";
+    response += "\"rearDistance\":" + String(_safetyMonitor->getRearDistance(), 1) + ",";
+    response += "\"userPresent\":" + String(_safetyMonitor->isUserPresent() ? "true" : "false");
+
     response += "}";
 
     sendJsonResponse(client, response);
+    logResponseTime(startTime);
 }
+
 
 // ===== UTILITY METHODS =====
 
@@ -462,25 +666,23 @@ void WebServer::sendJsonResponse(WiFiClient& client, const String& json) {
 }
 
 void WebServer::sendPageHeader(WiFiClient& client, const String& title) {
-    sendHttpHeader(client);
-    client.println("<!DOCTYPE html>");
-    client.println("<html><head>");
-    client.print("<title>");
-    client.print(title);
-    client.println("</title>");
-    client.println("<meta name='viewport' content='width=device-width, initial-scale=1'>");
+    String header;
+    header.reserve(800);
+
+    header += "HTTP/1.1 200 OK\r\n";
+    header += "Content-Type: text/html; charset=UTF-8\r\n";  // ← ADD charset=UTF-8 here
+    header += "Connection: close\r\n\r\n";
+    header += "<!DOCTYPE html><html><head>";
+    header += "<meta charset=\"UTF-8\">";  // ← ADD this meta tag for UTF-8
+    header += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+    header += "<title>" + title + "</title>";
+
+    client.print(header);
     sendSimpleCSS(client);
-    client.println("</head><body>");
-    client.println("<header>");
-    client.println("<h1>I Can Swing Control System</h1>");
-    client.println("<nav>");
-    client.println("<a href='/'>Home</a> | ");
-    client.println("<a href='/control'>Control</a> | ");
-    client.println("<a href='/config'>Configuration</a>");
-    client.println("</nav>");
-    client.println("</header>");
-    client.println("<main>");
+    client.print("</head><body><header><h1>" + title + "</h1>");
+    client.print("<nav><a href=\"/\">Home</a><a href=\"/control\">Control</a><a href=\"/config\">Configuration</a></nav></header><main>");
 }
+
 
 void WebServer::sendPageFooter(WiFiClient& client) {
     client.println("</main>");
@@ -493,110 +695,206 @@ void WebServer::sendPageFooter(WiFiClient& client) {
 }
 
 void WebServer::sendSimpleCSS(WiFiClient& client) {
-    client.println("<style>");
-    client.println("body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }");
-    client.println("header { background: #2c3e50; color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }");
-    client.println("header h1 { margin: 0; }");
-    client.println("nav { margin-top: 10px; }");
-    client.println("nav a { color: #ecf0f1; text-decoration: none; margin: 0 10px; }");
-    client.println("main { background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }");
-    client.println(".button-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 15px 0; }");
-    client.println(".btn { padding: 12px 20px; border: none; border-radius: 5px; text-decoration: none; text-align: center; cursor: pointer; font-size: 14px; }");
-    client.println(".btn-large { padding: 20px; font-size: 18px; font-weight: bold; }");
-    client.println(".btn-primary { background: #3498db; color: white; }");
-    client.println(".btn-success { background: #27ae60; color: white; }");
-    client.println(".btn-warning { background: #f39c12; color: white; }");
-    client.println(".btn-danger { background: #e74c3c; color: white; }");
-    client.println(".btn-info { background: #17a2b8; color: white; }");
-    client.println(".btn-secondary { background: #6c757d; color: white; }");
-    client.println(".status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }");
-    client.println(".status-item { padding: 10px; background: #ecf0f1; border-radius: 5px; }");
-    client.println(".control-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }");
-    client.println(".config-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }");
-    client.println("label { display: block; margin: 10px 0; }");
-    client.println("input[type='number'] { width: 100px; padding: 5px; }");
-    client.println("input[type='checkbox'] { margin-right: 5px; }");
-    client.println(".log-container { max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; }");
-    client.println(".log-entry { padding: 5px; border-bottom: 1px solid #eee; }");
-    client.println("footer { text-align: center; margin-top: 20px; color: #7f8c8d; }");
-    client.println("</style>");
+    String css;
+    css.reserve(3000);  // Pre-allocate memory
+
+    css += "<style>";
+    css += "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }";
+    css += "header { background: #2c3e50; color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }";
+    css += "header h1 { margin: 0; }";
+    css += "nav { margin-top: 10px; }";
+    css += "nav a { color: #ecf0f1; text-decoration: none; margin: 0 10px; }";
+    css += "main { background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }";
+    css += "h1, h2, h3 { color: #2c3e50; }";
+    css += ".button-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 15px 0; }";
+    css += ".btn { padding: 12px 20px; border: none; border-radius: 5px; text-decoration: none; text-align: center; cursor: pointer; font-size: 14px; }";
+    css += ".btn-large { padding: 20px; font-size: 18px; font-weight: bold; }";
+    css += ".btn-primary { background: #3498db; color: white; }";
+    css += ".btn-success { background: #27ae60; color: white; }";
+    css += ".btn-warning { background: #f39c12; color: white; }";
+    css += ".btn-danger { background: #e74c3c; color: white; }";
+    css += ".btn-info { background: #17a2b8; color: white; }";
+    css += ".btn-secondary { background: #6c757d; color: white; }";
+    css += "button:hover { opacity: 0.8; }";
+    css += ".status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }";
+    css += ".status-item { padding: 10px; background: #ecf0f1; border-radius: 5px; }";
+    css += ".control-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }";
+    css += ".config-section { background: white; padding: 20px; margin: 15px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #3498db; }";
+    css += ".config-section h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px; }";
+    css += "label { display: block; margin: 15px 0; font-weight: bold; color: #2c3e50; }";
+    css += "input[type='number'] { width: 100px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }";
+    css += "input[type='number']:focus { border-color: #3498db; outline: none; box-shadow: 0 0 5px rgba(52, 152, 219, 0.3); }";
+    css += "input[type='checkbox'] { margin-right: 8px; }";
+    css += ".physics-help { font-size: 0.85em; color: #7f8c8d; font-style: italic; margin: 5px 0 15px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #17a2b8; }";
+    css += "#physicsData { padding: 15px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6; font-family: monospace; }";
+    css += ".physics-monitor { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }";
+    css += ".physics-value { padding: 8px; background: white; border-radius: 4px; border-left: 3px solid #28a745; }";
+    css += ".log-container { max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; }";
+    css += ".log-entry { padding: 5px; border-bottom: 1px solid #eee; }";
+    css += "footer { text-align: center; margin-top: 20px; color: #7f8c8d; }";
+    css += "</style>";
+
+    client.print(css);  // Single print instead of 40+ println() calls
 }
+
 
 void WebServer::logEvent(const String& event, const String& status) {
     _logs[_logIndex] = {millis(), event, status};
     _logIndex = (_logIndex + 1) % MAX_LOGS;
 }
 
-String WebServer::getSensorData() {
-    String data = "";
+void WebServer::logResponseTime(unsigned long startTime) {
+    unsigned long responseTime = millis() - startTime;
 
-    if (_safetyMonitor) {
-        // User presence from SafetyMonitor
-        data += "<div class='status-item'><strong>User Present:</strong> ";
-        data += _safetyMonitor->isUserPresent() ? "<span style='color: green;'>YES</span>" : "<span style='color: red;'>NO</span>";
-        data += "</div>";
+    Serial.print("Response time: ");
+    Serial.print(responseTime);
+    Serial.println("ms");
 
-        // Front ultrasonic sensor
-        data += "<div class='status-item'><strong>Front Distance:</strong> ";
-        float frontDist = _safetyMonitor->getFrontDistance();
-        if (frontDist > 0 && frontDist < 500) {
-            data += String(frontDist, 1) + " cm";
-        } else {
-            data += "No reading";
+    if (responseTime > 1000) {  // Warn if > 1 second
+        Serial.println("WARNING: Slow response detected!");
+        logEvent("Performance", "Slow response: " + String(responseTime) + "ms");
+    }
+}
+
+// Optimized recent logs method
+String WebServer::getRecentLogsOptimized() {
+    String logs;
+    logs.reserve(512);
+
+    logs += "<h2>Recent Activity</h2>";
+    logs += "<div class=\"log-container\">";
+
+    // Show recent logs efficiently
+    for (int i = 0; i < MAX_LOGS; i++) {
+        int idx = (_logIndex - 1 - i + MAX_LOGS) % MAX_LOGS;
+        if (_logs[idx].timestamp > 0) {
+            logs += "<div class=\"log-entry\">";
+            logs += _logs[idx].event + " - " + _logs[idx].status;
+            logs += "</div>";
         }
-        data += "</div>";
-
-        // Rear ultrasonic sensor
-        data += "<div class='status-item'><strong>Rear Distance:</strong> ";
-        float rearDist = _safetyMonitor->getRearDistance();
-        if (rearDist > 0 && rearDist < 500) {
-            data += String(rearDist, 1) + " cm";
-        } else {
-            data += "No reading";
-        }
-        data += "</div>";
-
-        // Safety status with color coding
-        data += "<div class='status-item'><strong>Safety Status:</strong> ";
-        String status = _safetyMonitor->getStatusString();
-        if (status == "SAFE") {
-            data += "<span style='color: green;'>SAFE</span>";
-        } else if (status == "WARNING") {
-            data += "<span style='color: orange;'>WARNING</span>";
-        } else if (status == "ERROR") {
-            data += "<span style='color: red;'>ERROR</span>";
-        } else if (status == "EMERGENCY") {
-            data += "<span style='color: red; font-weight: bold;'>EMERGENCY</span>";
-        } else {
-            data += status;
-        }
-        data += "</div>";
-
-        // Dynamic safety thresholds (shows current effective thresholds)
-        data += "<div class='status-item'><strong>Warning Threshold:</strong> ";
-        data += String(_safetyMonitor->getEffectiveWarningDistance(), 1) + " cm</div>";
-
-        data += "<div class='status-item'><strong>Critical Threshold:</strong> ";
-        data += String(_safetyMonitor->getEffectiveCriticalDistance(), 1) + " cm</div>";
-
-    } else {
-        data += "<div class='status-item'><strong>Sensors:</strong> <span style='color: red;'>Not Available</span></div>";
     }
 
-    // System information
-    data += "<div class='status-item'><strong>Uptime:</strong> ";
-    unsigned long seconds = millis() / 1000;
-    unsigned long hours = seconds / 3600;
-    unsigned long minutes = (seconds % 3600) / 60;
-    seconds = seconds % 60;
-    data += String(hours) + "h " + String(minutes) + "m " + String(seconds) + "s</div>";
+    logs += "</div>";
+    return logs;
+}
 
-    // Memory usage (ESP32 specific)
-    data += "<div class='status-item'><strong>Free Memory:</strong> ";
-    data += "Available</div>"; // Simple placeholder
+// Add this optimized AJAX JavaScript method to WebServer.cpp
+String WebServer::getOptimizedAjaxScript() {
+    String js;
+    js.reserve(1024);  // Pre-allocate for performance
 
+    js += "<script>";
+
+    // Main command function - optimized and compressed
+    js += "function cmd(c){";
+    js += "const b=event.target;";
+    js += "const orig=b.innerHTML;";
+    js += "b.disabled=1;";
+    js += "b.innerHTML='⏳';";
+    js += "b.style.opacity='0.7';";
+    js += "fetch('/api/control?cmd='+c)";
+    js += ".then(r=>r.json())";
+    js += ".then(d=>{";
+    js += "msg(d.success?'✅ '+d.message:'❌ '+d.message,d.success);";
+    js += "b.disabled=0;b.innerHTML=orig;b.style.opacity='1';";
+    js += "if(d.success)setTimeout(()=>updateStatus(),500);";  // Refresh status after success
+    js += "})";
+    js += ".catch(e=>{";
+    js += "msg('❌ Connection failed',0);";
+    js += "b.disabled=0;b.innerHTML=orig;b.style.opacity='1';";
+    js += "});";
+    js += "}";
+
+    // Message display function
+    js += "function msg(t,success){";
+    js += "const d=document.createElement('div');";
+    js += "d.innerHTML=t;";
+    js += "d.style.cssText='position:fixed;top:20px;right:20px;padding:12px 16px;color:#fff;border-radius:6px;z-index:1000;font-weight:bold;box-shadow:0 4px 6px rgba(0,0,0,0.1);';";
+    js += "d.style.backgroundColor=success?'#27ae60':'#e74c3c';";
+    js += "document.body.appendChild(d);";
+    js += "setTimeout(()=>{d.style.opacity='0';d.style.transform='translateX(100%)';d.style.transition='all 0.3s';setTimeout(()=>d.remove(),300);},2500);";
+    js += "}";
+
+    // Status update function for live data
+    js += "function updateStatus(){";
+    js += "fetch('/api/status')";
+    js += ".then(r=>r.json())";
+    js += ".then(d=>{";
+    js += "const items=document.querySelectorAll('.status-item');";
+    js += "if(items[0])items[0].innerHTML='<strong>State:</strong><br>'+d.state;";
+    js += "if(items[1])items[1].innerHTML='<strong>Speed:</strong><br>'+d.speed;";
+    js += "if(items[2])items[2].innerHTML='<strong>Safety:</strong><br>'+d.safety;";
+    js += "if(items[3])items[3].innerHTML='<strong>Uptime:</strong><br>'+d.uptime+'s';";
+    js += "})";
+    js += ".catch(e=>console.log('Status update failed'));";
+    js += "}";
+
+    // Auto-refresh status every 10 seconds (less aggressive than before)
+    js += "setInterval(updateStatus,10000);";
+
+    js += "</script>";
+
+    return js;
+}
+
+
+String WebServer::getSensorData() {
+    String data;
+    data.reserve(1024);  // Pre-allocate for performance
+
+    data += "<div class=\"status-grid\">";
+
+    // User presence - using existing SafetyMonitor method
+    data += "<div class=\"status-item\"><strong>User Present:</strong><br>";
+    data += (_safetyMonitor->isUserPresent() ? "<span style=\"color: green\">YES</span>" : "<span style=\"color: red\">NO</span>");
+    data += "</div>";
+
+    // Front distance
+    data += "<div class=\"status-item\"><strong>Front Distance:</strong><br>";
+    float frontDist = _safetyMonitor->getFrontDistance();
+    if (frontDist > 0 && frontDist < 500) {
+        data += String(frontDist, 1) + " cm";
+    } else {
+        data += "No reading";
+    }
+    data += "</div>";
+
+    // Rear distance
+    data += "<div class=\"status-item\"><strong>Rear Distance:</strong><br>";
+    float rearDist = _safetyMonitor->getRearDistance();
+    if (rearDist > 0 && rearDist < 500) {
+        data += String(rearDist, 1) + " cm";
+    } else {
+        data += "No reading";
+    }
+    data += "</div>";
+
+    // Safety status with proper color coding
+    data += "<div class=\"status-item\"><strong>Safety Status:</strong><br>";
+    String statusStr = _safetyMonitor->getStatusString();
+    if (statusStr == "SAFE") {
+        data += "<span style=\"color: green\">✅ " + statusStr + "</span>";
+    } else if (statusStr == "WARNING") {
+        data += "<span style=\"color: orange\">⚠️ " + statusStr + "</span>";
+    } else if (statusStr == "ERROR") {
+        data += "<span style=\"color: red\">❌ " + statusStr + "</span>";
+    } else if (statusStr == "EMERGENCY") {
+        data += "<span style=\"color: red; font-weight: bold\">🚨 " + statusStr + "</span>";
+    } else {
+        data += statusStr;
+    }
+    data += "</div>";
+
+    // Current physics settings (new addition)
+    RuntimeConfig& config = RuntimeConfig::getInstance();
+    data += "<div class=\"status-item\"><strong>Physics:</strong><br>";
+    data += String(config.getPushDurationPercent()) + "% push, " + String(config.getPushPowerPercent()) + "% power";
+    data += "</div>";
+
+    data += "</div>";
     return data;
 }
+
 
 
 String WebServer::getSystemStatus() {
