@@ -177,7 +177,7 @@ void WebServer::sendControlPage(WiFiClient& client) {
     controlPage += "<div class=\"status-item\"><strong>System State:</strong><br>" + String(_stateMachine->getStateString()) + "</div>";
     controlPage += "<div class=\"status-item\"><strong>Current Speed:</strong><br>" + String(_stateMachine->getSpeedString()) + "</div>";
 
-    // Safety status with proper method
+    // Safety status
     SafetyMonitor::SafetyStatus safetyStatus = _safetyMonitor->getCurrentStatus();
     controlPage += "<div class=\"status-item\"><strong>Safety Status:</strong><br>";
     switch(safetyStatus) {
@@ -206,12 +206,29 @@ void WebServer::sendControlPage(WiFiClient& client) {
     controlPage += "<div class=\"control-section\">";
     controlPage += "<h3>🎢 Swing Controls</h3>";
     controlPage += "<div class=\"button-grid\">";
-    controlPage += "<button onclick=\"cmd('speed_low')\" class=\"btn btn-success btn-large\">🐌 Low Speed</button>";
-    controlPage += "<button onclick=\"cmd('speed_medium')\" class=\"btn btn-warning btn-large\">🚶 Medium Speed</button>";
-    controlPage += "<button onclick=\"cmd('speed_high')\" class=\"btn btn-info btn-large\">🏃 High Speed</button>";
-    controlPage += "<button onclick=\"cmd('stop')\" class=\"btn btn-primary btn-large\">⏹️ Stop</button>";
-    controlPage += "<button onclick=\"cmd('emergency')\" class=\"btn btn-danger btn-large\">🚨 EMERGENCY</button>";
-    controlPage += "</div></div>";
+
+    // Show different buttons based on current state
+    StateMachine::State currentState = _stateMachine->getCurrentState();
+
+    if (currentState == StateMachine::STATE_EMERGENCY) {
+        // Emergency state
+        controlPage += "<button onclick=\"cmd('reset')\" class=\"btn btn-warning btn-large\">🔄 RESET FROM EMERGENCY</button>";
+        controlPage += "<button onclick=\"cmd('emergency')\" class=\"btn btn-danger\">🚨 EMERGENCY (again)</button>";
+    } else {
+        // Normal operation - show regular controls
+        controlPage += "<button onclick=\"cmd('speed_low')\" class=\"btn btn-success btn-large\">🐌 Low Speed</button>";
+        controlPage += "<button onclick=\"cmd('speed_medium')\" class=\"btn btn-warning btn-large\">🚶 Medium Speed</button>";
+        controlPage += "<button onclick=\"cmd('speed_high')\" class=\"btn btn-info btn-large\">🏃 High Speed</button>";
+        controlPage += "<button onclick=\"cmd('stop')\" class=\"btn btn-primary btn-large\">⏹️ Stop</button>";
+        controlPage += "<button onclick=\"cmd('emergency')\" class=\"btn btn-danger btn-large\">🚨 EMERGENCY</button>";
+
+        // Show reset button smaller when not in emergency
+        if (currentState == StateMachine::STATE_ERROR) {
+            controlPage += "<button onclick=\"cmd('reset')\" class=\"btn btn-secondary\">🔄 Reset</button>";
+        }
+    }
+
+controlPage += "</div></div>";
 
     // AJAX-enabled Door Controls
     controlPage += "<div class=\"control-section\">";
@@ -263,30 +280,30 @@ void WebServer::sendPhysicsConfigSection(WiFiClient& client) {
 
     physics += "<label>Push Duration (%): <input type=\"number\" name=\"pushDuration\" value=\"";
     physics += String(config.getPushDurationPercent());
-    physics += "\" min=\"5\" max=\"50\" step=\"1\"></label>";
+    physics += "\" min=\"10\" max=\"50\" step=\"1\"></label>";
     physics += "<div class=\"physics-help\">Push Duration: Percentage of swing cycle to apply power (20% = natural, 30% = more aggressive)</div>";
 
     physics += "<label>Push Power (%): <input type=\"number\" name=\"pushPower\" value=\"";
     physics += String(config.getPushPowerPercent());
-    physics += "\" min=\"20\" max=\"100\" step=\"5\"></label>";
+    physics += "\" min=\"50\" max=\"100\" step=\"5\"></label>";
     physics += "<div class=\"physics-help\">Push Power: Motor power during push phase (100% = maximum torque, 80% = gentler motion)</div>";
 
     physics += "<label>Swing Steps - Low Speed: <input type=\"number\" name=\"swingStepsLow\" value=\"";
     physics += String(config.getSwingSpeedLowSteps());
-    physics += "\" min=\"10\" max=\"200\" step=\"5\"></label>";
+    physics += "\" min=\"1\" max=\"255\" step=\"5\"></label>";
 
     physics += "<label>Swing Steps - Medium Speed: <input type=\"number\" name=\"swingStepsMed\" value=\"";
     physics += String(config.getSwingSpeedMediumSteps());
-    physics += "\" min=\"20\" max=\"300\" step=\"5\"></label>";
+    physics += "\" min=\"1\" max=\"255\" step=\"5\"></label>";
 
     physics += "<label>Swing Steps - High Speed: <input type=\"number\" name=\"swingStepsHigh\" value=\"";
     physics += String(config.getSwingSpeedHighSteps());
-    physics += "\" min=\"30\" max=\"400\" step=\"5\"></label>";
+    physics += "\" min=\"1\" max=\"255\" step=\"5\"></label>";
     physics += "<div class=\"physics-help\">Swing Steps: Number of motor steps per interval (higher = more powerful swinging)</div>";
 
     physics += "<label>Step Interval (ms): <input type=\"number\" name=\"stepInterval\" value=\"";
     physics += String(config.getSwingStepIntervalMs());
-    physics += "\" min=\"5\" max=\"100\" step=\"1\"></label>";
+    physics += "\" min=\"10\" max=\"50\" step=\"1\"></label>";
     physics += "<div class=\"physics-help\">Step Interval: Time between motor updates in milliseconds (lower = smoother motion)</div>";
 
     physics += "</div>";
@@ -344,15 +361,15 @@ void WebServer::sendConfigPage(WiFiClient& client) {
     // Safety Settings Section - USING THE GENERIC SETTERS
     configPage += "<div class=\"config-section\">";
     configPage += "<h3>⚠️ Safety Settings</h3>";
-    configPage += "<div class=\"physics-help\">These distances apply to both front and rear sensors</div>";
+    configPage += "<div class=\"physics-help\">These distances apply to both frontLeft and frontRight sensors</div>";
 
     configPage += "<label>Warning Distance (cm): <input type=\"number\" name=\"warningDistance\" value=\"";
-    configPage += String(config.getFrontWarningDistance()); // Same as rear, so use either
+    configPage += String(config.getFrontLeftWarningDistance()); // Same as frontRight, so use either
     configPage += "\" min=\"10\" max=\"200\" step=\"1\"></label>";
     configPage += "<div class=\"physics-help\">Distance at which the system gives a warning but continues operation</div>";
 
     configPage += "<label>Critical Distance (cm): <input type=\"number\" name=\"criticalDistance\" value=\"";
-    configPage += String(config.getFrontCriticalDistance()); // Same as rear, so use either
+    configPage += String(config.getFrontLeftCriticalDistance()); // Same as frontRight, so use either
     configPage += "\" min=\"5\" max=\"100\" step=\"1\"></label>";
     configPage += "<div class=\"physics-help\">Distance at which the system immediately stops for safety</div>";
     configPage += "</div>";
@@ -362,13 +379,13 @@ void WebServer::sendConfigPage(WiFiClient& client) {
     configPage += "<h3>⚙️ Motor Speed Settings</h3>";
     configPage += "<label>Low Speed (RPM): <input type=\"number\" name=\"speedLow\" value=\"";
     configPage += String(config.getSpeedLow());
-    configPage += "\" min=\"10\" max=\"100\" step=\"5\"></label>";
+    configPage += "\" min=\"20\" max=\"50\" step=\"5\"></label>";
     configPage += "<label>Medium Speed (RPM): <input type=\"number\" name=\"speedMed\" value=\"";
     configPage += String(config.getSpeedMedium());
-    configPage += "\" min=\"20\" max=\"150\" step=\"5\"></label>";
+    configPage += "\" min=\"55\" max=\"70\" step=\"5\"></label>";
     configPage += "<label>High Speed (RPM): <input type=\"number\" name=\"speedHigh\" value=\"";
     configPage += String(config.getSpeedHigh());
-    configPage += "\" min=\"30\" max=\"200\" step=\"5\"></label>";
+    configPage += "\" min=\"75\" max=\"90\" step=\"5\"></label>";
     configPage += "</div>";
 
     // Basic Swing Settings Section
@@ -376,12 +393,12 @@ void WebServer::sendConfigPage(WiFiClient& client) {
     configPage += "<h3>🎢 Basic Swing Settings</h3>";
     configPage += "<label>Swing Period (ms): <input type=\"number\" name=\"swingPeriod\" value=\"";
     configPage += String(config.getSwingPeriodMs());
-    configPage += "\" min=\"3000\" max=\"12000\" step=\"100\"></label>";
+    configPage += "\" min=\"1000\" max=\"12000\" step=\"100\"></label>";
     configPage += "<div class=\"physics-help\">Total time for one complete swing cycle (lower = faster swinging)</div>";
 
     configPage += "<label>Max Swing Angle (degrees): <input type=\"number\" name=\"maxAngle\" value=\"";
     configPage += String(config.getSwingMaxAngleDegrees());
-    configPage += "\" min=\"15\" max=\"90\" step=\"5\"></label>";
+    configPage += "\" min=\"30\" max=\"180\" step=\"5\"></label>";
     configPage += "<div class=\"physics-help\">Maximum swing angle from center position (safety limit)</div>";
 
     configPage += "<label>Smooth Stop Time (ms): <input type=\"number\" name=\"smoothStop\" value=\"";
@@ -455,6 +472,13 @@ void WebServer::handleControlAPI(WiFiClient& client, String command) {
         _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY);
         success = true;
         message = "Emergency stop activated";
+    }
+    else if (command == "reset") {
+        // Use both the event and direct method for safety
+        _stateMachine->processEvent(StateMachine::EVENT_EMERGENCY_RESET);
+        _stateMachine->resetFromEmergency();
+        success = true;
+        message = "System reset from emergency";
     }
     else if (command == "door_open") {
         _stateMachine->processEvent(StateMachine::EVENT_DOOR_OPEN_PRESSED);
@@ -639,8 +663,8 @@ void WebServer::handleStatusAPI(WiFiClient& client) {
     response += "\"uptime\":" + String(millis() / 1000) + ",";
 
     // Add sensor data for more detailed status
-    response += "\"frontDistance\":" + String(_safetyMonitor->getFrontDistance(), 1) + ",";
-    response += "\"rearDistance\":" + String(_safetyMonitor->getRearDistance(), 1) + ",";
+    response += "\"frontLeftDistance\":" + String(_safetyMonitor->getFrontLeftDistance(), 1) + ",";
+    response += "\"frontRightDistance\":" + String(_safetyMonitor->getFrontRightDistance(), 1) + ",";
     response += "\"userPresent\":" + String(_safetyMonitor->isUserPresent() ? "true" : "false");
 
     response += "}";
@@ -849,21 +873,21 @@ String WebServer::getSensorData() {
     data += (_safetyMonitor->isUserPresent() ? "<span style=\"color: green\">YES</span>" : "<span style=\"color: red\">NO</span>");
     data += "</div>";
 
-    // Front distance
-    data += "<div class=\"status-item\"><strong>Front Distance:</strong><br>";
-    float frontDist = _safetyMonitor->getFrontDistance();
-    if (frontDist > 0 && frontDist < 500) {
-        data += String(frontDist, 1) + " cm";
+    // frontLeft distance
+    data += "<div class=\"status-item\"><strong>frontLeft Distance:</strong><br>";
+    float frontLeftDist = _safetyMonitor->getFrontLeftDistance();
+    if (frontLeftDist > 0 && frontLeftDist < 500) {
+        data += String(frontLeftDist, 1) + " cm";
     } else {
         data += "No reading";
     }
     data += "</div>";
 
-    // Rear distance
-    data += "<div class=\"status-item\"><strong>Rear Distance:</strong><br>";
-    float rearDist = _safetyMonitor->getRearDistance();
-    if (rearDist > 0 && rearDist < 500) {
-        data += String(rearDist, 1) + " cm";
+    // frontRight distance
+    data += "<div class=\"status-item\"><strong>frontRight Distance:</strong><br>";
+    float frontRightDist = _safetyMonitor->getFrontRightDistance();
+    if (frontRightDist > 0 && frontRightDist < 500) {
+        data += String(frontRightDist, 1) + " cm";
     } else {
         data += "No reading";
     }

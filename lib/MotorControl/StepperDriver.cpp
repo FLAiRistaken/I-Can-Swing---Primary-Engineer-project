@@ -360,15 +360,15 @@ void StepperDriver::updateSwingPhysics() {
         }
     }
 
-    // Enhanced debug output with more physics data
-    static unsigned long lastDebugTime = 0;
-    if (millis() - lastDebugTime > 1000) {
-        Serial.print("Swing Progress: "); Serial.print(swingProgress * 100, 1); Serial.print("% ");
-        Serial.print("Target: "); Serial.print(targetPosition);
-        Serial.print(" Current: "); Serial.print(_currentPosition);
-        Serial.print(" Error: "); Serial.println(positionError);
-        lastDebugTime = millis();
-    }
+    // // Enhanced debug output with more physics data
+    // static unsigned long lastDebugTime = 0;
+    // if (millis() - lastDebugTime > 1000) {
+    //     Serial.print("Swing Progress: "); Serial.print(swingProgress * 100, 1); Serial.print("% ");
+    //     Serial.print("Target: "); Serial.print(targetPosition);
+    //     Serial.print(" Current: "); Serial.print(_currentPosition);
+    //     Serial.print(" Error: "); Serial.println(positionError);
+    //     lastDebugTime = millis();
+    // }
 }
 
 

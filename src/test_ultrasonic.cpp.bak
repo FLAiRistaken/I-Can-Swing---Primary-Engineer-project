@@ -4,7 +4,7 @@
 #include "BuzzerDriver.h"
 
 // Create ultrasonic sensor instance
-UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Front");
+UltrasonicSensor ultrasonicFrontLeft(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "frontLeft");
 // Create buzzer instance
 BuzzerDriver buzzer(PIN_BUZZER);
 
@@ -19,7 +19,7 @@ void setup() {
   Serial.begin(9600);
 
   // Initialize components
-  ultrasonicFront.begin();
+  ultrasonicFrontLeft.begin();
   buzzer.begin();
 
   Serial.println("Ultrasonic Sensor Test with Buzzer");
@@ -34,7 +34,7 @@ void setup() {
 
 void loop() {
   // Measure distance
-  distance = ultrasonicFront.measureDistance();
+  distance = ultrasonicFrontLeft.measureDistance();
 
   // Print result
   Serial.print("Distance: ");

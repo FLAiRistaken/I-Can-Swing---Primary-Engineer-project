@@ -9,11 +9,11 @@ The `SafetyMonitor` is a high-level manager that consolidates data from multiple
 ## 2. Key Responsibilities & Features
 
 *   **Multi-Layered Monitoring:** Continuously assesses several conditions in parallel:
-    *   Obstacle proximity (front and rear).
+    *   Obstacle proximity (frontLeft and frontRight).
     *   User presence (is someone securely in the swing?).
     *   Motor operation (is the swing motor stalled?).
     *   System responsiveness (via a software watchdog).
-*   **Obstacle Detection:** Uses the front and rear ultrasonic sensors to detect objects in the swing's path. It employs two levels of proximity detection:
+*   **Obstacle Detection:** Uses the frontLeft and frontRight ultrasonic sensors to detect objects in the swing's path. It employs two levels of proximity detection:
     *   **Warning:** A non-critical distance that might indicate a potential issue.
     *   **Critical:** An immediate danger zone that triggers an emergency stop.
 *   **Dynamic Safety Thresholds:** Intelligently adjusts the sensitivity of the obstacle detection based on the swing's current state. For example, it uses slightly more lenient thresholds when swinging to avoid false positives from the ground or the swing structure itself.
@@ -46,6 +46,6 @@ The monitor categorises all safety conditions into one of four levels:
 The `SafetyMonitor` is a central module that interacts with several other parts of the system:
 
 *   **`StateMachine`**: It receives a pointer to the main state machine so it can send events and check the current system state.
-*   **`UltrasonicSensor`**: It depends on two instances (front and rear) to get proximity data.
+*   **`UltrasonicSensor`**: It depends on two instances (frontLeft and frontRight) to get proximity data.
 *   **`PressureSensor`**: It depends on the pressure sensor to determine user presence.
 *   **`RuntimeConfig`**: It reads safety thresholds (like warning distances) from the runtime configuration, allowing them to be tuned without recompiling.

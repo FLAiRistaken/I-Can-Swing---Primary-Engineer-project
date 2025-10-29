@@ -22,7 +22,7 @@ It is implemented as a **Singleton**, meaning there is only one instance of `Run
 ## 3. The `Settings` Structure
 
 All configurable parameters are stored in a single `struct` named `Settings`. This includes:
-*   **Safety Parameters:** `frontWarningDistance`, `frontCriticalDistance`, `pressureThreshold`.
+*   **Safety Parameters:** `frontLeftWarningDistance`, `frontLeftCriticalDistance`, `pressureThreshold`.
 *   **Swing Motion Parameters:** All the values needed for the physics-based swing algorithm, such as `swingPeriodMs`, `swingMaxAngleDegrees`, and `swingSpeed...Steps`.
 *   **System Parameters:** `doorTimeoutMs`, `buzzerVolume`.
 *   **Feature Flags:** A single byte used to enable or disable major features like audio feedback and voice recognition.

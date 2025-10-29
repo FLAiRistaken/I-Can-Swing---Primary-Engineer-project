@@ -13,10 +13,10 @@ public:
         uint8_t checksum;         // Simple checksum (1 byte)
 
         // Safety Configuration (16 bytes)
-        float frontWarningDistance;    // 4 bytes
-        float frontCriticalDistance;   // 4 bytes
-        float rearWarningDistance;     // 4 bytes
-        float rearCriticalDistance;    // 4 bytes
+        float frontLeftWarningDistance;    // 4 bytes
+        float frontLeftCriticalDistance;   // 4 bytes
+        float frontRightWarningDistance;     // 4 bytes
+        float frontRightCriticalDistance;    // 4 bytes
 
         // Motor Configuration (8 bytes)
         uint16_t speedLow;            // 2 bytes
@@ -60,10 +60,10 @@ public:
     bool isValid() const;
 
     // Simple getters
-    float getFrontWarningDistance() const { return _settings.frontWarningDistance; }
-    float getFrontCriticalDistance() const { return _settings.frontCriticalDistance; }
-    float getRearWarningDistance() const { return _settings.rearWarningDistance; }
-    float getRearCriticalDistance() const { return _settings.rearCriticalDistance; }
+    float getFrontLeftWarningDistance() const { return _settings.frontLeftWarningDistance; }
+    float getFrontLeftCriticalDistance() const { return _settings.frontLeftCriticalDistance; }
+    float getFrontRightWarningDistance() const { return _settings.frontRightWarningDistance; }
+    float getFrontRightCriticalDistance() const { return _settings.frontRightCriticalDistance; }
     uint16_t getPressureThreshold() const { return _settings.pressureThreshold; }
 
     uint16_t getSpeedLow() const { return _settings.speedLow; }

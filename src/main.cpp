@@ -26,8 +26,8 @@ StateMachine stateMachine;
 StepperDriver swingMotors(PIN_SWING_MOTOR_IN1, PIN_SWING_MOTOR_IN2,
                           PIN_SWING_MOTOR_IN3, PIN_SWING_MOTOR_IN4);
 // Create ultrasonic sensor instances
-UltrasonicSensor ultrasonicFront(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "Front");
-UltrasonicSensor ultrasonicRear(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "Rear");
+UltrasonicSensor ultrasonicFrontLeft(PIN_ULTRASONIC1_TRIG, PIN_ULTRASONIC1_ECHO, "frontLeft");
+UltrasonicSensor ultrasonicFrontRight(PIN_ULTRASONIC2_TRIG, PIN_ULTRASONIC2_ECHO, "frontRight");
 PressureSensor pressureSensor(PIN_PRESSURE_SENSOR, PRESSURE_THRESHOLD, "BasketSensor");
 DoorActuatorManager doorActuator(PIN_DOOR_ACTUATOR1_FWD, PIN_DOOR_ACTUATOR1_REV,
                                  PIN_DOOR_ACTUATOR2_FWD, PIN_DOOR_ACTUATOR2_REV,
@@ -35,19 +35,19 @@ DoorActuatorManager doorActuator(PIN_DOOR_ACTUATOR1_FWD, PIN_DOOR_ACTUATOR1_REV,
 VoiceRecognition voiceModule(PIN_VOICE_RX, PIN_VOICE_TX, &stateMachine);
 
 // Create SafetyMonitor instance
-SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFront,
-                            &ultrasonicRear, &pressureSensor);
+SafetyMonitor safetyMonitor(&stateMachine, &ultrasonicFrontLeft,
+                            &ultrasonicFrontRight, &pressureSensor);
 
 WiFiManager wifiManager;
 WebServer webServer(&stateMachine, &safetyMonitor);
 
 // UsS Distance values
-float frontDistance = 0.0;
-float rearDistance = 0.0;
+float frontLeftDistance = 0.0;
+float frontRightDistance = 0.0;
 
 // UsS state variables
-bool frontSensorMeasuring = false;
-bool rearSensorMeasuring = false;
+bool frontLeftSensorMeasuring = false;
+bool frontRightSensorMeasuring = false;
 
 // Timing variables
 unsigned long lastSensorCheck = 0;
@@ -134,17 +134,17 @@ void handleButtons() {
 // Function to check ultrasonic sensors
 void checkUltrasonicSensors() {
     // Measure distances
-    frontDistance = ultrasonicFront.measureDistance();
-    rearDistance = ultrasonicRear.measureDistance();
+    frontLeftDistance = ultrasonicFrontLeft.measureDistance();
+    frontRightDistance = ultrasonicFrontRight.measureDistance();
 
     // Define thresholds
     RuntimeConfig& config = RuntimeConfig::getInstance();
-    float criticalDistance = config.getFrontCriticalDistance(); // Very close - emergency
-    float warningDistance = config.getFrontWarningDistance(); // Normal obstacle - error
+    float criticalDistance = config.getFrontLeftCriticalDistance(); // Very close - emergency
+    float warningDistance = config.getFrontLeftWarningDistance(); // Normal obstacle - error
 
     // Check for critical proximity (EMERGENCY condition)
-    if ((frontDistance > 0 && frontDistance < criticalDistance) ||
-        (rearDistance > 0 && rearDistance < criticalDistance)) {
+    if ((frontLeftDistance > 0 && frontLeftDistance < criticalDistance) ||
+        (frontRightDistance > 0 && frontRightDistance < criticalDistance)) {
         // Immediate danger detected - trigger emergency
         stateMachine.processEvent(StateMachine::EVENT_EMERGENCY);
         buzzer.playTone(2000, 500); // Urgent alert sound
@@ -153,15 +153,15 @@ void checkUltrasonicSensors() {
     }
 
     // Check for obstacles (ERROR condition)
-    if ((frontDistance > criticalDistance && frontDistance < warningDistance) ||
-        (rearDistance > criticalDistance && rearDistance < warningDistance)) {
+    if ((frontLeftDistance > criticalDistance && frontLeftDistance < warningDistance) ||
+        (frontRightDistance > criticalDistance && frontRightDistance < warningDistance)) {
         // Obstacle detected - trigger error only if not already in error/emergency
         if (stateMachine.getCurrentState() != StateMachine::STATE_ERROR &&
             stateMachine.getCurrentState() != StateMachine::STATE_EMERGENCY) {
             stateMachine.processEvent(StateMachine::EVENT_OBSTACLE_DETECTED);
             buzzer.beep(1500, 100); // Alert sound
             Serial.print("WARNING: Object detected at ");
-            Serial.print((frontDistance < warningDistance) ? frontDistance : rearDistance);
+            Serial.print((frontLeftDistance < warningDistance) ? frontLeftDistance : frontRightDistance);
             Serial.println(" cm");
         }
     }
@@ -184,28 +184,28 @@ void setup() {
     DEBUG_PRINTLN("RuntimeConfig initialised");
 
     // Initialise components
-    DEBUG_PRINTLN("Initialising expander...");
-    if (!expander.begin()) {
-        Serial.println("FATAL: Expander chip not found. Halting.");
-        while(1);
-    }
+    // DEBUG_PRINTLN("Initialising expander...");
+    // if (!expander.begin()) {
+    //     Serial.println("FATAL: Expander chip not found. Halting.");
+    //     while(1);
+    // }
     DEBUG_PRINTLN("Expander initialised");
     DEBUG_PRINTLN("Initialising buzzer...");
     buzzer.begin();
     DEBUG_PRINTLN("Buzzer initialised");
-    DEBUG_PRINTLN("Initialising buttons...");
-    buttons.begin();
-    DEBUG_PRINTLN("Buttons initialised");
+    // DEBUG_PRINTLN("Initialising buttons...");
+    // buttons.begin();
+    // DEBUG_PRINTLN("Buttons initialised");
     DEBUG_PRINTLN("Initialising safetyMonitor...");
     safetyMonitor.begin();
     DEBUG_PRINTLN("safetyMonitor initialised");
-    DEBUG_PRINTLN("Initialising ultrasonicFront...");
-    ultrasonicFront.begin();
-    DEBUG_PRINTLN("ultrasonicFront initialised");
+    DEBUG_PRINTLN("Initialising ultrasonicFrontLeft...");
+    ultrasonicFrontLeft.begin();
+    DEBUG_PRINTLN("ultrasonicFrontLeft initialised");
     delay(50);
-    DEBUG_PRINTLN("Initialising ultrasonicRear...");
-    ultrasonicRear.begin();
-    DEBUG_PRINTLN("ultrasonicRear initialised");
+    DEBUG_PRINTLN("Initialising ultrasonicFrontRight...");
+    ultrasonicFrontRight.begin();
+    DEBUG_PRINTLN("ultrasonicFrontRight initialised");
     delay(50);
     DEBUG_PRINTLN("Initialising pressureSensor...");
     pressureSensor.begin();
@@ -216,12 +216,12 @@ void setup() {
     DEBUG_PRINTLN("Initialising swingMotors...");
     swingMotors.begin();
     DEBUG_PRINTLN("swingMotors initialised");
-    DEBUG_PRINTLN("Initialising doorActuator...");
-    doorActuator.begin();
-    DEBUG_PRINTLN("doorActuator initialised");
-    DEBUG_PRINTLN("Initialising voiceModule");
-    voiceModule.begin();
-    DEBUG_PRINTLN("voiceModule initialised...");
+    // DEBUG_PRINTLN("Initialising doorActuator...");
+    // doorActuator.begin();
+    // DEBUG_PRINTLN("doorActuator initialised");
+    // DEBUG_PRINTLN("Initialising voiceModule");
+    // voiceModule.begin();
+    // DEBUG_PRINTLN("voiceModule initialised...");
     DEBUG_PRINTLN("Initialising WiFi...");
     if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
         DEBUG_PRINTLN("WiFi connected successfully");
@@ -236,8 +236,8 @@ void setup() {
     // stateMachine.setDoorTimeout(config.getDoorTimeoutMs());
     stateMachine.setSwingMotor(&swingMotors);
 
-    ultrasonicFront.startMeasurement();
-    ultrasonicRear.startMeasurement();
+    ultrasonicFrontLeft.startMeasurement();
+    ultrasonicFrontRight.startMeasurement();
 
     // Startup beep
     buzzer.beep(1000, 100);
@@ -250,7 +250,7 @@ void setup() {
 void loop() {
     webServer.handleClient();
     // --- All non-blocking updates run on every loop ---
-    handleButtons();
+    // handleButtons();
     stateMachine.update();
 
     // Voice recognition timing control (10Hz update rate for stability)
@@ -260,7 +260,7 @@ void loop() {
         lastVoiceCheck = millis();
     }
 
-    doorActuator.update();
+    // doorActuator.update();
     updateMotors();
 
     safetyMonitor.update();
@@ -270,13 +270,13 @@ void loop() {
     if (millis() - lastPrintTime > 2000) {
         lastPrintTime = millis();
 
-        float currentFrontDistance = safetyMonitor.getFrontDistance();
-        float currentRearDistance = safetyMonitor.getRearDistance();
+        float currentFrontLeftDistance = safetyMonitor.getFrontLeftDistance();
+        float currentFrontRightDistance = safetyMonitor.getFrontRightDistance();
 
-        DEBUG_PRINT("Front: ");
-        DEBUG_PRINT(currentFrontDistance);
-        DEBUG_PRINT(" cm, Rear: ");
-        DEBUG_PRINT(currentRearDistance);
+        DEBUG_PRINT("frontLeft: ");
+        DEBUG_PRINT(currentFrontLeftDistance);
+        DEBUG_PRINT(" cm, frontRight: ");
+        DEBUG_PRINT(currentFrontRightDistance);
         DEBUG_PRINTLN(" cm");
     }
 

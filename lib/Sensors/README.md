@@ -20,7 +20,7 @@ The driver is fundamentally simple and relies on polling.
 ## 2. `UltrasonicSensor`
 
 ### Purpose
-The `UltrasonicSensor` is used for obstacle detection. The system uses two instances of this driver: one mounted at the front and one at the rear of the swing frame.
+The `UltrasonicSensor` is used for obstacle detection. The system uses two instances of this driver: one mounted at the frontLeft and one at the frontRight of the swing frame.
 
 ### Hardware
 *   **Sensor:** HC-SR04 Ultrasonic Distance Sensor.

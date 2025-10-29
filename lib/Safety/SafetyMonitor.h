@@ -19,8 +19,8 @@ public:
     };
 
     SafetyMonitor(StateMachine* stateMachine,
-                 UltrasonicSensor* frontSensor,
-                 UltrasonicSensor* rearSensor,
+                 UltrasonicSensor* frontLeftSensor,
+                 UltrasonicSensor* frontRightSensor,
                  PressureSensor* pressureSensor);
 
     void begin();
@@ -38,10 +38,10 @@ public:
     // Get sensor readings for display/logging
     void update();
     void updateSensorReadings();
-    void setFrontDistance(float distance);
-    void setRearDistance(float distance);
-    float getFrontDistance() const;
-    float getRearDistance() const;
+    void setFrontLeftDistance(float distance);
+    void setFrontRightDistance(float distance);
+    float getFrontLeftDistance() const;
+    float getFrontRightDistance() const;
     bool isUserPresent() const;
     const char* getStatusString() const;
     SafetyStatus getCurrentStatus() const;
@@ -52,17 +52,17 @@ public:
 
 private:
     StateMachine* _stateMachine;
-    UltrasonicSensor* _frontSensor;
-    UltrasonicSensor* _rearSensor;
+    UltrasonicSensor* _frontLeftSensor;
+    UltrasonicSensor* _frontRightSensor;
     PressureSensor* _pressureSensor;
 
     // Current sensor values
-    float _frontDistance;
-    float _rearDistance;
+    float _frontLeftDistance;
+    float _frontRightDistance;
     bool _userPresent;
     SafetyStatus _currentStatus;
     unsigned long _lastSensorCheck;
-    bool _measureFrontSensor;
+    bool _measureFrontLeftSensor;
     bool _lastUserPresentState;
 
     // Motor monitoring
@@ -95,8 +95,8 @@ private:
     };
     SwingPhase _currentSwingPhase;
     unsigned long _lastPhaseChange;
-    float _lastFrontDistance;
-    float _lastRearDistance;
+    float _lastFrontLeftDistance;
+    float _lastFrontRightDistance;
 
     // For expected ground detection filtering
     bool isReadingExpectedSwing(float distance, float previousDistance);

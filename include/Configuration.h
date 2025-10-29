@@ -21,10 +21,10 @@ constexpr uint8_t PIN_VOICE_RX = 2;          // Working reliably on R4 WiFi
 constexpr uint8_t PIN_VOICE_TX = 9;          // Moved from pin 12 to avoid SPI interference
 
 // ---- Ultrasonic Sensors (Stationary on swing frame) ----
-constexpr uint8_t PIN_ULTRASONIC1_TRIG = A1; // Front sensor trigger
-constexpr uint8_t PIN_ULTRASONIC1_ECHO = A2; // Front sensor echo
-constexpr uint8_t PIN_ULTRASONIC2_TRIG = A3; // Rear sensor trigger
-constexpr uint8_t PIN_ULTRASONIC2_ECHO = 8;  // Rear sensor echo
+constexpr uint8_t PIN_ULTRASONIC1_TRIG = A1; // FrontLeft sensor trigger
+constexpr uint8_t PIN_ULTRASONIC1_ECHO = A2; // FrontLeft sensor echo
+constexpr uint8_t PIN_ULTRASONIC2_TRIG = A3; // frontRight sensor trigger
+constexpr uint8_t PIN_ULTRASONIC2_ECHO = 8;  // frontRight sensor echo
 
 // ---- Analog Sensors ----
 constexpr uint8_t PIN_PRESSURE_SENSOR = A0;  // User presence detection

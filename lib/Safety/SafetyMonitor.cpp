@@ -9,15 +9,15 @@ void onConfigChange(const char* key) {
 }
 
 SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
-                           UltrasonicSensor* frontSensor,
-                           UltrasonicSensor* rearSensor,
+                           UltrasonicSensor* frontLeftSensor,
+                           UltrasonicSensor* frontRightSensor,
                            PressureSensor* pressureSensor)
     : _stateMachine(stateMachine),
-      _frontSensor(frontSensor),
-      _rearSensor(rearSensor),
+      _frontLeftSensor(frontLeftSensor),
+      _frontRightSensor(frontRightSensor),
       _pressureSensor(pressureSensor),
-      _frontDistance(500.0f),
-      _rearDistance(500.0f),
+      _frontLeftDistance(500.0f),
+      _frontRightDistance(500.0f),
       _userPresent(false),
       _currentStatus(STATUS_OK),
       _lastMotionCheck(0),
@@ -30,10 +30,10 @@ SafetyMonitor::SafetyMonitor(StateMachine* stateMachine,
       _watchdogEnabled(true),
       _currentSwingPhase(PHASE_UNKNOWN),
       _lastPhaseChange(0),
-      _lastFrontDistance(0.0f),
-      _lastRearDistance(0.0f),
+      _lastFrontLeftDistance(0.0f),
+      _lastFrontRightDistance(0.0f),
       _lastSensorCheck(0),
-      _measureFrontSensor(true),
+      _measureFrontLeftSensor(true),
       _lastUserPresentState(false) {}
 
 void SafetyMonitor::begin() {
@@ -103,14 +103,14 @@ void SafetyMonitor::update() {
     const unsigned long SENSOR_CHECK_INTERVAL = 100;
     if (millis() - _lastSensorCheck > SENSOR_CHECK_INTERVAL) {
         _lastSensorCheck = millis();
-        if (_measureFrontSensor) {
-            float frontDist = _frontSensor->measureDistance();
-            setFrontDistance(frontDist);
+        if (_measureFrontLeftSensor) {
+            float frontLeftDist = _frontLeftSensor->measureDistance();
+            setFrontLeftDistance(frontLeftDist);
         } else {
-            float rearDist = _rearSensor->measureDistance();
-            setRearDistance(rearDist);
+            float frontRightDist = _frontRightSensor->measureDistance();
+            setFrontRightDistance(frontRightDist);
         }
-        _measureFrontSensor = !_measureFrontSensor;
+        _measureFrontLeftSensor = !_measureFrontLeftSensor;
     }
 
     // --- User Presence Event Generation ---
@@ -128,12 +128,12 @@ void SafetyMonitor::update() {
     checkSafety();
 }
 
-void SafetyMonitor::setFrontDistance(float distance) {
-    _frontDistance = distance;
+void SafetyMonitor::setFrontLeftDistance(float distance) {
+    _frontLeftDistance = distance;
 }
 
-void SafetyMonitor::setRearDistance(float distance) {
-    _rearDistance = distance;
+void SafetyMonitor::setFrontRightDistance(float distance) {
+    _frontRightDistance = distance;
 }
 
 bool SafetyMonitor::detectRapidObstacleChanges() {
@@ -144,8 +144,8 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
 
 
     // Check if distance crosses the warning threshold
-    bool obstacleDetected = (_frontDistance > 0 && _frontDistance < config.getFrontWarningDistance()) ||
-                            (_rearDistance > 0 && _rearDistance < config.getRearWarningDistance());
+    bool obstacleDetected = (_frontLeftDistance > 0 && _frontLeftDistance < config.getFrontLeftWarningDistance()) ||
+                            (_frontRightDistance > 0 && _frontRightDistance < config.getFrontRightWarningDistance());
 
     // Only record changes in obstacle status
     static bool lastObstacleStatus = false;
@@ -177,25 +177,25 @@ bool SafetyMonitor::detectRapidObstacleChanges() {
 
 SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     // Use simulated values if in test mode
-    _frontDistance = _frontSensor->measureDistance();
+    _frontLeftDistance = _frontLeftSensor->measureDistance();
 
-    _rearDistance = _rearSensor->measureDistance();
+    _frontRightDistance = _frontRightSensor->measureDistance();
 
     // Store previous readings for phase detection
-    static float lastFrontDistance = _frontDistance;
-    static float lastRearDistance = _rearDistance;
+    static float lastFrontLeftDistance = _frontLeftDistance;
+    static float lastFrontRightDistance = _frontRightDistance;
 
     // --- Position-Aware Filtering ---
     // Track swing phase if in swinging state
     if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
         // Track swing phase based on distance changes
-        if (_frontDistance > lastFrontDistance + 5.0f) {
+        if (_frontLeftDistance > lastFrontLeftDistance + 5.0f) {
             // Distance increasing - swing moving away
             if (_currentSwingPhase != PHASE_BACKWARD) {
                 _currentSwingPhase = PHASE_BACKWARD;
                 _lastPhaseChange = millis();
             }
-        } else if (_frontDistance < lastFrontDistance - 5.0f) {
+        } else if (_frontLeftDistance < lastFrontLeftDistance - 5.0f) {
             // Distance decreasing - swing moving toward
             if (_currentSwingPhase != PHASE_FORWARD) {
                 _currentSwingPhase = PHASE_FORWARD;
@@ -204,20 +204,20 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
         }
 
         // Filter expected ground readings based on swing phase
-        if (isReadingExpectedSwing(_frontDistance, lastFrontDistance)) {
-            DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on front sensor");
-            _frontDistance = 400.0f; // Set to max range (filtered)
+        if (isReadingExpectedSwing(_frontLeftDistance, lastFrontLeftDistance)) {
+            DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on frontLeft sensor");
+            _frontLeftDistance = 400.0f; // Set to max range (filtered)
         }
 
-        if (isReadingExpectedSwing(_rearDistance, lastRearDistance)) {
-            DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on rear sensor");
-            _rearDistance = 400.0f; // Set to max range (filtered)
+        if (isReadingExpectedSwing(_frontRightDistance, lastFrontRightDistance)) {
+            DEBUG_PRINTLN("SafetyMonitor: Filtering expected ground detection on frontRight sensor");
+            _frontRightDistance = 400.0f; // Set to max range (filtered)
         }
     }
 
     // Store current readings for next comparison
-    lastFrontDistance = _frontDistance;
-    lastRearDistance = _rearDistance;
+    lastFrontLeftDistance = _frontLeftDistance;
+    lastFrontRightDistance = _frontRightDistance;
 
     // --- Dynamic Safety Thresholds ---
     // Get dynamic thresholds based on current state
@@ -225,10 +225,10 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     float effectiveWarning = getEffectiveWarningDistance();
 
     // Check for critical proximity using dynamic threshold
-    if ((_frontDistance > 0 && _frontDistance < effectiveCritical) ||
-        (_rearDistance > 0 && _rearDistance < effectiveCritical)) {
+    if ((_frontLeftDistance > 0 && _frontLeftDistance < effectiveCritical) ||
+        (_frontRightDistance > 0 && _frontRightDistance < effectiveCritical)) {
         Serial.print("SafetyMonitor: CRITICAL - Object extremely close! Distance: ");
-        Serial.print((_frontDistance < effectiveCritical) ? _frontDistance : _rearDistance);
+        Serial.print((_frontLeftDistance < effectiveCritical) ? _frontLeftDistance : _frontRightDistance);
         Serial.print(" cm, Threshold: ");
         Serial.print(effectiveCritical);
         Serial.println(" cm");
@@ -236,10 +236,10 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkObstacles() {
     }
 
     // Check for obstacles using dynamic threshold
-    if ((_frontDistance > effectiveCritical && _frontDistance < effectiveWarning) ||
-        (_rearDistance > effectiveCritical && _rearDistance < effectiveWarning)) {
+    if ((_frontLeftDistance > effectiveCritical && _frontLeftDistance < effectiveWarning) ||
+        (_frontRightDistance > effectiveCritical && _frontRightDistance < effectiveWarning)) {
         Serial.print("SafetyMonitor: WARNING - Object detected at ");
-        Serial.print((_frontDistance < effectiveWarning) ? _frontDistance : _rearDistance);
+        Serial.print((_frontLeftDistance < effectiveWarning) ? _frontLeftDistance : _frontRightDistance);
         Serial.print(" cm, Threshold: ");
         Serial.print(effectiveWarning);
         Serial.println(" cm");
@@ -295,7 +295,7 @@ bool SafetyMonitor::isReadingExpectedSwing(float distance, float previousDistanc
 
 float SafetyMonitor::getEffectiveWarningDistance() const {
     RuntimeConfig& config = RuntimeConfig::getInstance();
-    float baseDistance = config.getFrontWarningDistance();
+    float baseDistance = config.getFrontLeftWarningDistance();
     // When swinging, use a smaller threshold to account for ground detection
     if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
         // Reduce warning threshold by 30% during swinging
@@ -306,7 +306,7 @@ float SafetyMonitor::getEffectiveWarningDistance() const {
 
 float SafetyMonitor::getEffectiveCriticalDistance() const {
     RuntimeConfig& config = RuntimeConfig::getInstance();
-    float baseDistance = config.getFrontCriticalDistance();
+    float baseDistance = config.getFrontLeftCriticalDistance();
     // Critical distance is less affected but still adjustable
     if (_stateMachine->getCurrentState() == StateMachine::STATE_SWINGING) {
         // Reduce critical threshold by 10% during swinging
@@ -412,12 +412,12 @@ SafetyMonitor::SafetyStatus SafetyMonitor::checkMotorOperation() {
     return STATUS_OK;
 }
 
-float SafetyMonitor::getFrontDistance() const {
-    return _frontDistance;
+float SafetyMonitor::getFrontLeftDistance() const {
+    return _frontLeftDistance;
 }
 
-float SafetyMonitor::getRearDistance() const {
-    return _rearDistance;
+float SafetyMonitor::getFrontRightDistance() const {
+    return _frontRightDistance;
 }
 
 bool SafetyMonitor::isUserPresent() const {
