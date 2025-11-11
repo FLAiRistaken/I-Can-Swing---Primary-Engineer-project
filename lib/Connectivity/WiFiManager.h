@@ -1,21 +1,26 @@
 // lib/Connectivity/WiFiManager.h
 #pragma once
 
-#include <Arduino.h>
-#include <WiFiS3.h>
-#include "Configuration.h"
+#include <WiFi.h>
 
 class WiFiManager {
 public:
     WiFiManager();
 
     bool begin(const char* ssid, const char* password);
+    void update();
+    bool checkAndReconnect();
     bool isConnected();
     void printStatus();
     String getLocalIP();
+    void setReconnectInterval(unsigned long interval);
 
 private:
+    char _ssid[32];                   // Store SSID for reconnection
+    char _password[64];               // Store password for reconnection
     int _status;
     unsigned long _lastConnectionCheck;
-    const unsigned long CONNECTION_CHECK_INTERVAL = 30000; // 30 seconds
+    unsigned long _reconnectInterval;
+    unsigned long _reconnectAttemptTime;
+    bool _reconnecting;
 };

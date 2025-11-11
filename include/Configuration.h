@@ -59,7 +59,7 @@ constexpr uint8_t PIN_BTN_GIVE = 8;          // Expander pin B0
 // ========================
 // System Constants
 // ========================
-constexpr unsigned long DOOR_OPEN_TIME_MS   = 16000;
+constexpr unsigned long DOOR_OPEN_TIME_MS   = 17000;
 constexpr unsigned long BUTTON_DEBOUNCE_MS  = 15;
 constexpr unsigned long SENSOR_CHECK_MS     = 100;
 

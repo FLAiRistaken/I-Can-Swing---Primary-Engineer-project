@@ -14,9 +14,9 @@ StateMachine::StateMachine()
       _doorActuator(nullptr),
       _buzzer(nullptr),
       _swingMotors(nullptr),
-      _stateEntryTime(0)
-    //   _doorTimeoutMs(165000),
-    //   _timeoutEnabled(false)
+      _stateEntryTime(0),
+      _doorTimeoutMs(25000),
+      _timeoutEnabled(false)
 {}
 
 void StateMachine::begin() {
@@ -24,8 +24,8 @@ void StateMachine::begin() {
     _currentSpeed = SPEED_OFF;
     _isUserPresent = false;
     _stateEntryTime = millis();
-    // _timeoutEnabled = false;
-    // _doorTimeoutMs = RuntimeConfig::getInstance().getDoorTimeoutMs();
+    _timeoutEnabled = false;
+    _doorTimeoutMs = 25000;
 
     // Check if components are set
     if (!_buzzer) {
@@ -216,7 +216,6 @@ void StateMachine::processEvent(Event event) {
             DEBUG_PRINTLN("StateMachine: Handling event in DOOR_OPENING state.");
             if (event == EVENT_DOOR_OPENED) { // Door opened fully (event from DoorActuatorManager)
                 DEBUG_PRINTLN("StateMachine: Door opened fully. Transitioning to IDLE.");
-                transition(STATE_IDLE);
             } else if (event == EVENT_DOOR_CLOSE_PRESSED) { // Allow interrupting opening to close
                 DEBUG_PRINTLN("StateMachine: Door CLOSE pressed while opening. Transitioning to DOOR_CLOSING.");
                 transition(STATE_DOOR_CLOSING);
@@ -299,7 +298,7 @@ void StateMachine::enterState(State state) {
             // Direct control of door actuator
             if (_doorActuator) {
                 _doorActuator->openDoor();
-                // _timeoutEnabled = true;
+                _timeoutEnabled = true;
             }
             // Audio feedback
             if (_buzzer) {
@@ -312,7 +311,7 @@ void StateMachine::enterState(State state) {
             // Direct control of door actuator
             if (_doorActuator) {
                 _doorActuator->closeDoor();
-                // _timeoutEnabled = true;
+                _timeoutEnabled = true;
             }
             // Audio feedback
             if (_buzzer) {
@@ -372,9 +371,9 @@ void StateMachine::exitState(State state) {
             // Stop door movement directly
             if (_doorActuator) {
                 _doorActuator->stopDoor();
-                // _timeoutEnabled = false;
+                _timeoutEnabled = false;
             }
-            // _timeoutEnabled = false;
+            _timeoutEnabled = false;
             DEBUG_PRINTLN("StateMachine: Stopping door movement");
             break;
 
@@ -397,29 +396,29 @@ void StateMachine::exitState(State state) {
 // }
 
 void StateMachine::update() {
-    // // Check for timeouts
-    // if (_timeoutEnabled) {
-    //     unsigned long currentTime = millis();
-    //     if (currentTime - _stateEntryTime > _doorTimeoutMs) {
-    //         DEBUG_PRINTLN("StateMachine: Door operation timed out!");
+    // Check for timeouts
+    if (_timeoutEnabled) {
+        unsigned long currentTime = millis();
+        if (currentTime - _stateEntryTime > _doorTimeoutMs) {
+            DEBUG_PRINTLN("StateMachine: Door operation timed out!");
 
-    //         // Handle timeout based on current state
-    //         if (_currentState == STATE_DOOR_OPENING || _currentState == STATE_DOOR_CLOSING) {
-    //             if (_doorActuator) {
-    //                 _doorActuator->stopDoor();
-    //             }
-    //             transition(STATE_ERROR);
-    //         }
+            // Handle timeout based on current state
+            if (_currentState == STATE_DOOR_OPENING || _currentState == STATE_DOOR_CLOSING) {
+                if (_doorActuator) {
+                    _doorActuator->stopDoor();
+                }
+                transition(STATE_IDLE);
+            }
 
-    //         _timeoutEnabled = false;
-    //     }
-    // }
+            _timeoutEnabled = false;
+        }
+    }
 }
 
 void StateMachine::resetFromEmergency() {
     if (_currentState == STATE_EMERGENCY && _swingMotors) {
         // Reset the emergency halt state in the motor
-        _swingMotors->returnHome();  // Move to safe home position
+        _swingMotors->clearEmergencyHalt();
         Serial.println("StateMachine: Emergency state reset, motor returning home");
     }
 }

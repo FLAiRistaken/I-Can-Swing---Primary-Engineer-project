@@ -24,11 +24,16 @@ void ButtonManager::begin() {
     _pins[BTN_EMERGENCY] = PIN_EMERGENCY_STOP;
 
     for (int i = BTN_STOP; i <= BTN_GIVE; i++) {
-        _expander->pinMode(_pins[i], INPUT_PULLUP);
+        _expander->pinMode(_pins[i], INPUT);
+        _expander->digitalWrite(_pins[i], HIGH);
+        delay(1);
     }
+    
     DEBUG_PRINTLN("ButtonManager: Expander pins configured.");
     // synchronises the software state with the physical hardware state.
     DEBUG_PRINTLN("ButtonManager: Synchronising initial button states...");
+    delay(10);
+
     for (int i = BTN_STOP; i <= BTN_GIVE; i++) {
         bool initialState = !_expander->digitalRead(_pins[i]); // Read the physical state
         _currentState[i] = initialState;

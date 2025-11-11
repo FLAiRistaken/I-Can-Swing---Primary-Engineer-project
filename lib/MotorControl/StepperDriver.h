@@ -32,6 +32,8 @@ public:
 
     // Enhanced stop methods
     void emergencyHalt();      // Immediate stop, hold current position
+    void clearEmergencyHalt();
+    void holdPosition();
     void smoothStop();         // Complete current swing, then stop at center
     void returnHome();         // Move to center position from anywhere
 
@@ -79,6 +81,8 @@ private:
     int _maxSwingSteps;                   // Maximum steps for swing angle
     float _currentSwingPhase;             // Current position in swing cycle (0.0-1.0)
     bool _smoothStopping;                 // Flag for smooth stop in progress
+    bool _holdingPosition;
+    unsigned long _holdStartTime;
 
     // Physics calculation methods
     float calculateSwingProgress(unsigned long currentTime);

@@ -23,9 +23,8 @@ float UltrasonicSensor::measureDistance() {
     digitalWrite(_trigPin, LOW);
 
     // Read echo pin (time in microseconds)
-    unsigned long duration = pulseIn(_echoPin, HIGH, 30000); // 30ms timeout
+    unsigned long duration = pulseIn(_echoPin, HIGH, 15000); // 15ms timeout
 
-    // --- THIS IS THE FINAL FIX ---
     // If the duration is 0, it means the pulseIn() function timed out.
     // This is an invalid reading. Instead of returning 0.00, we return a safe, high value.
     if (duration == 0) {

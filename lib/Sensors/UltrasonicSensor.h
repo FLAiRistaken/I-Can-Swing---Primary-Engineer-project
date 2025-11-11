@@ -34,5 +34,5 @@ private:
     unsigned long _lastAttemptTime;
 
     // Timeout constants
-    static const unsigned long MEASUREMENT_TIMEOUT = 38000; // 38ms timeout (max HC-SR04 range)
+    static const unsigned long MEASUREMENT_TIMEOUT = 20000;
 };

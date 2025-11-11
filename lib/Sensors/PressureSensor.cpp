@@ -19,7 +19,8 @@ int PressureSensor::readRawValue() {
 
 bool PressureSensor::isOccupied() {
     readRawValue();
-    return (_lastRawValue > _threshold);
+    //return (_lastRawValue > _threshold);
+    return true;
 }
 
 int PressureSensor::getThreshold() const {

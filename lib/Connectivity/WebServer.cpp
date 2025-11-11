@@ -280,7 +280,7 @@ void WebServer::sendPhysicsConfigSection(WiFiClient& client) {
 
     physics += "<label>Push Duration (%): <input type=\"number\" name=\"pushDuration\" value=\"";
     physics += String(config.getPushDurationPercent());
-    physics += "\" min=\"10\" max=\"50\" step=\"1\"></label>";
+    physics += "\" min=\"5\" max=\"50\" step=\"1\"></label>";
     physics += "<div class=\"physics-help\">Push Duration: Percentage of swing cycle to apply power (20% = natural, 30% = more aggressive)</div>";
 
     physics += "<label>Push Power (%): <input type=\"number\" name=\"pushPower\" value=\"";
@@ -298,12 +298,12 @@ void WebServer::sendPhysicsConfigSection(WiFiClient& client) {
 
     physics += "<label>Swing Steps - High Speed: <input type=\"number\" name=\"swingStepsHigh\" value=\"";
     physics += String(config.getSwingSpeedHighSteps());
-    physics += "\" min=\"1\" max=\"255\" step=\"5\"></label>";
+    physics += "\" min=\"1\" max=\"300\" step=\"5\"></label>";
     physics += "<div class=\"physics-help\">Swing Steps: Number of motor steps per interval (higher = more powerful swinging)</div>";
 
     physics += "<label>Step Interval (ms): <input type=\"number\" name=\"stepInterval\" value=\"";
     physics += String(config.getSwingStepIntervalMs());
-    physics += "\" min=\"10\" max=\"50\" step=\"1\"></label>";
+    physics += "\" min=\"3\" max=\"50\" step=\"1\"></label>";
     physics += "<div class=\"physics-help\">Step Interval: Time between motor updates in milliseconds (lower = smoother motion)</div>";
 
     physics += "</div>";
@@ -382,10 +382,10 @@ void WebServer::sendConfigPage(WiFiClient& client) {
     configPage += "\" min=\"20\" max=\"50\" step=\"5\"></label>";
     configPage += "<label>Medium Speed (RPM): <input type=\"number\" name=\"speedMed\" value=\"";
     configPage += String(config.getSpeedMedium());
-    configPage += "\" min=\"55\" max=\"70\" step=\"5\"></label>";
+    configPage += "\" min=\"20\" max=\"70\" step=\"5\"></label>";
     configPage += "<label>High Speed (RPM): <input type=\"number\" name=\"speedHigh\" value=\"";
     configPage += String(config.getSpeedHigh());
-    configPage += "\" min=\"75\" max=\"90\" step=\"5\"></label>";
+    configPage += "\" min=\"20\" max=\"90\" step=\"5\"></label>";
     configPage += "</div>";
 
     // Basic Swing Settings Section
@@ -393,7 +393,7 @@ void WebServer::sendConfigPage(WiFiClient& client) {
     configPage += "<h3>🎢 Basic Swing Settings</h3>";
     configPage += "<label>Swing Period (ms): <input type=\"number\" name=\"swingPeriod\" value=\"";
     configPage += String(config.getSwingPeriodMs());
-    configPage += "\" min=\"1000\" max=\"12000\" step=\"100\"></label>";
+    configPage += "\" min=\"1000\" max=\"12000\" step=\"10\"></label>";
     configPage += "<div class=\"physics-help\">Total time for one complete swing cycle (lower = faster swinging)</div>";
 
     configPage += "<label>Max Swing Angle (degrees): <input type=\"number\" name=\"maxAngle\" value=\"";

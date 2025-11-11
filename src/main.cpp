@@ -184,18 +184,18 @@ void setup() {
     DEBUG_PRINTLN("RuntimeConfig initialised");
 
     // Initialise components
-    // DEBUG_PRINTLN("Initialising expander...");
-    // if (!expander.begin()) {
-    //     Serial.println("FATAL: Expander chip not found. Halting.");
-    //     while(1);
-    // }
+    DEBUG_PRINTLN("Initialising expander...");
+    if (!expander.begin()) {
+        Serial.println("FATAL: Expander chip not found. Halting.");
+        while(1);
+    }
     DEBUG_PRINTLN("Expander initialised");
     DEBUG_PRINTLN("Initialising buzzer...");
     buzzer.begin();
     DEBUG_PRINTLN("Buzzer initialised");
-    // DEBUG_PRINTLN("Initialising buttons...");
-    // buttons.begin();
-    // DEBUG_PRINTLN("Buttons initialised");
+    DEBUG_PRINTLN("Initialising buttons...");
+    buttons.begin();
+    DEBUG_PRINTLN("Buttons initialised");
     DEBUG_PRINTLN("Initialising safetyMonitor...");
     safetyMonitor.begin();
     DEBUG_PRINTLN("safetyMonitor initialised");
@@ -216,20 +216,20 @@ void setup() {
     DEBUG_PRINTLN("Initialising swingMotors...");
     swingMotors.begin();
     DEBUG_PRINTLN("swingMotors initialised");
-    // DEBUG_PRINTLN("Initialising doorActuator...");
-    // doorActuator.begin();
-    // DEBUG_PRINTLN("doorActuator initialised");
+    DEBUG_PRINTLN("Initialising doorActuator...");
+    doorActuator.begin();
+    DEBUG_PRINTLN("doorActuator initialised");
     // DEBUG_PRINTLN("Initialising voiceModule");
     // voiceModule.begin();
     // DEBUG_PRINTLN("voiceModule initialised...");
-    DEBUG_PRINTLN("Initialising WiFi...");
-    if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
-        DEBUG_PRINTLN("WiFi connected successfully");
-        webServer.begin();
-        DEBUG_PRINTLN("Web server started");
-    } else {
-        Serial.println("WiFi connection failed - continuing without web interface");
-    }
+    // DEBUG_PRINTLN("Initialising WiFi...");
+    // if (wifiManager.begin(WIFI_SSID, WIFI_PASSWORD)) {
+    //     DEBUG_PRINTLN("WiFi connected successfully");
+    //     webServer.begin();
+    //     DEBUG_PRINTLN("Web server started");
+    // } else {
+    //     Serial.println("WiFi connection failed - continuing without web interface");
+    // }
 
     stateMachine.setBuzzer(&buzzer);
     stateMachine.setDoorActuator(&doorActuator);
@@ -248,17 +248,27 @@ void setup() {
 }
 
 void loop() {
-    webServer.handleClient();
+    // static unsigned long lastWiFiCheck = 0;
+    // if (millis() - lastWiFiCheck >= 10000) {
+    //     wifiManager.update();
+    //     lastWiFiCheck = millis();
+    // }
+
+    // // Handle web server only when connected
+    // if (wifiManager.isConnected()) {
+    //     webServer.handleClient();
+    // }
     // --- All non-blocking updates run on every loop ---
-    // handleButtons();
+    handleButtons();
     stateMachine.update();
+    doorActuator.update();
 
     // Voice recognition timing control (10Hz update rate for stability)
-    static unsigned long lastVoiceCheck = 0;
-    if (millis() - lastVoiceCheck > 100) { // Check every 100ms instead of every loop
-        voiceModule.update();
-        lastVoiceCheck = millis();
-    }
+    // static unsigned long lastVoiceCheck = 0;
+    // if (millis() - lastVoiceCheck > 100) { // Check every 100ms instead of every loop
+    //     voiceModule.update();
+    //     lastVoiceCheck = millis();
+    // }
 
     // doorActuator.update();
     updateMotors();
@@ -273,11 +283,11 @@ void loop() {
         float currentFrontLeftDistance = safetyMonitor.getFrontLeftDistance();
         float currentFrontRightDistance = safetyMonitor.getFrontRightDistance();
 
-        DEBUG_PRINT("frontLeft: ");
-        DEBUG_PRINT(currentFrontLeftDistance);
-        DEBUG_PRINT(" cm, frontRight: ");
-        DEBUG_PRINT(currentFrontRightDistance);
-        DEBUG_PRINTLN(" cm");
+        // DEBUG_PRINT("frontLeft: ");
+        // DEBUG_PRINT(currentFrontLeftDistance);
+        // DEBUG_PRINT(" cm, frontRight: ");
+        // DEBUG_PRINT(currentFrontRightDistance);
+        // DEBUG_PRINTLN(" cm");
     }
 
     // --- Other timed events (Unchanged) ---

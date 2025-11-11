@@ -10,29 +10,26 @@ RuntimeConfig& RuntimeConfig::getInstance() {
 
 void RuntimeConfig::begin() {
     DEBUG_PRINTLN("RuntimeConfig: Initializing...");
-
     EEPROM.begin();
     _isDirty = false;
     _callbackCount = 0;
 
-    if (!loadFromEEPROM() || !isValid()) {
-        DEBUG_PRINTLN("RuntimeConfig: Loading defaults");
+    if (!loadFromEEPROM()) {
+        DEBUG_PRINTLN("RuntimeConfig: EEPROM load failed - using defaults");
+        loadDefaults();
+        saveToEEPROM();
+    } else if (!isValid()) {
+        DEBUG_PRINTLN("RuntimeConfig: EEPROM validation failed - using defaults");
         loadDefaults();
         saveToEEPROM();
     } else {
-        DEBUG_PRINTLN("RuntimeConfig: Loaded from EEPROM");
+        DEBUG_PRINTLN("RuntimeConfig: Successfully loaded from EEPROM");
     }
-
-    DEBUG_PRINT("RuntimeConfig: Version ");
-    DEBUG_PRINT(_settings.version);
-    DEBUG_PRINT(", Size: ");
-    DEBUG_PRINT(sizeof(Settings));
-    DEBUG_PRINTLN(" bytes");
 }
+
 
 void RuntimeConfig::loadDefaults() {
     memset(&_settings, 0, sizeof(Settings));
-
     _settings.magic = MAGIC_NUMBER;
     _settings.version = CONFIG_VERSION;
 
@@ -43,9 +40,9 @@ void RuntimeConfig::loadDefaults() {
     _settings.frontRightCriticalDistance = CRITICAL_DISTANCE_CM;
     _settings.pressureThreshold = PRESSURE_THRESHOLD;
 
-    _settings.speedLow = 30;
-    _settings.speedMedium = 60;
-    _settings.speedHigh = 80;
+    _settings.speedLow = 20;
+    _settings.speedMedium = 20;
+    _settings.speedHigh = 20;
     _settings.maxSpeed = 90;
 
     _settings.doorTimeoutMs = DOOR_OPEN_TIME_MS / 1000; // Store in seconds
@@ -55,22 +52,25 @@ void RuntimeConfig::loadDefaults() {
     // Set default flags
     _settings.flags = FLAG_AUDIO_FEEDBACK | FLAG_VOICE_RECOGNITION | FLAG_WATCHDOG_ENABLED;
 
-    // Swing motion defaults (realistic pendulum physics)
-    _settings.swingPeriodMs = 3000;         // 4 second total cycle (comfortable)
-    _settings.swingStepIntervalMs = 25;     // 50Hz update rate (smooth motion)
-    _settings.swingMaxAngleDegrees = 90;    // ±45° swing (safe range)
-    _settings.swingSpeedLowSteps = 20;       // 1 step per 20ms = gentle
-    _settings.swingSpeedMediumSteps = 30;    // 2 steps per 20ms = moderate
-    _settings.swingSpeedHighSteps = 40;      // 3 steps per 20ms = energetic
-    _settings.swingSmoothStopMs = 2000;     // 2 second smooth stop
+    // SWING MOTION
+    _settings.swingPeriodMs = 3000;
+    _settings.swingStepIntervalMs = 5;
 
-    _settings.pushDurationPercent = 20;    // 20% push duration (matches current hardcoded value)
-    _settings.pushPowerPercent = 100;      // 100% power (matches current hardcoded value)
+    _settings.swingSpeedLowSteps = 116;
+    _settings.swingSpeedMediumSteps = 141;
+    _settings.swingSpeedHighSteps = 191;
+    _settings.swingSmoothStopMs = 2000;
 
+    // PHYSICS
+    _settings.pushDurationPercent = 8;
+    _settings.pushPowerPercent = 100;
 
     _settings.checksum = calculateChecksum();
     _isDirty = true;
+
+    DEBUG_PRINTLN("RuntimeConfig: Loaded defaults matching current working config");
 }
+
 
 bool RuntimeConfig::loadFromEEPROM() {
     EEPROM.get(EEPROM_ADDRESS, _settings);
@@ -78,22 +78,60 @@ bool RuntimeConfig::loadFromEEPROM() {
 }
 
 bool RuntimeConfig::saveToEEPROM() {
-    if (!_isDirty) return true;
+    if (!_isDirty) {
+        DEBUG_PRINTLN("RuntimeConfig: No changes to save");
+        return true;
+    }
 
     _settings.checksum = calculateChecksum();
+
+    DEBUG_PRINTLN("RuntimeConfig: Writing settings to EEPROM...");
     EEPROM.put(EEPROM_ADDRESS, _settings);
-    _isDirty = false;
-    DEBUG_PRINTLN("RuntimeConfig: Saved to EEPROM");
-    return true;
+
+    // Verify the write succeeded
+    Settings verification;
+    EEPROM.get(EEPROM_ADDRESS, verification);
+
+    if (verification.magic == _settings.magic &&
+        verification.version == _settings.version &&
+        verification.checksum == _settings.checksum) {
+        _isDirty = false;
+        DEBUG_PRINTLN("RuntimeConfig: EEPROM save verified successfully");
+        return true;
+    } else {
+        DEBUG_PRINTLN("RuntimeConfig: EEPROM save verification FAILED!");
+        return false;
+    }
 }
+
 
 void RuntimeConfig::save() {
     saveToEEPROM();
 }
 
 bool RuntimeConfig::isValid() const {
-    return (_settings.checksum == calculateChecksum()) && validate();
+    bool magicOK = (_settings.magic == MAGIC_NUMBER);
+    bool versionOK = (_settings.version == CONFIG_VERSION);
+    bool checksumOK = (calculateChecksum() == _settings.checksum);
+    bool validationOK = validate();
+
+    if (!magicOK) DEBUG_PRINTLN("RuntimeConfig: Invalid magic number");
+    if (!versionOK) DEBUG_PRINTLN("RuntimeConfig: Version mismatch");
+    if (!checksumOK) DEBUG_PRINTLN("RuntimeConfig: Checksum mismatch");
+    if (!validationOK) DEBUG_PRINTLN("RuntimeConfig: Validation failed");
+
+    DEBUG_PRINT("RuntimeConfig: Validation - Magic=");
+    DEBUG_PRINT(magicOK ? "OK" : "FAIL");
+    DEBUG_PRINT(", Version=");
+    DEBUG_PRINT(versionOK ? "OK" : "FAIL");
+    DEBUG_PRINT(", Checksum=");
+    DEBUG_PRINT(checksumOK ? "OK" : "FAIL");
+    DEBUG_PRINT(", Values=");
+    DEBUG_PRINTLN(validationOK ? "OK" : "FAIL");
+
+    return (magicOK && versionOK && checksumOK && validationOK);
 }
+
 
 uint8_t RuntimeConfig::calculateChecksum() const {
     uint8_t checksum = 0;
@@ -110,14 +148,58 @@ uint8_t RuntimeConfig::calculateChecksum() const {
 }
 
 bool RuntimeConfig::validate() const {
-    // Basic validation
-    return (_settings.frontLeftWarningDistance > _settings.frontLeftCriticalDistance &&
-            _settings.frontRightWarningDistance > _settings.frontRightCriticalDistance &&
-            _settings.speedLow < _settings.speedMedium &&
-            _settings.speedMedium < _settings.speedHigh &&
-            _settings.pressureThreshold > 100 &&
-            _settings.pressureThreshold < 900);
+    // Safety Configuration Validation
+    if (_settings.frontLeftWarningDistance <= _settings.frontLeftCriticalDistance ||
+        _settings.frontRightWarningDistance <= _settings.frontRightCriticalDistance ||
+        _settings.frontLeftWarningDistance < 0 || _settings.frontLeftWarningDistance > 500 ||
+        _settings.frontLeftCriticalDistance < 0 || _settings.frontLeftCriticalDistance > 500 ||
+        _settings.frontRightWarningDistance < 0 || _settings.frontRightWarningDistance > 500 ||
+        _settings.frontRightCriticalDistance < 0 || _settings.frontRightCriticalDistance > 500) {
+        DEBUG_PRINTLN("RuntimeConfig: Safety distance validation failed");
+        return false;
+    }
+
+    // Motor Speed Validation (Allow equal values)
+    if (_settings.speedLow < 5 || _settings.speedLow > 200 ||
+        _settings.speedMedium < 5 || _settings.speedMedium > 200 ||
+        _settings.speedHigh < 5 || _settings.speedHigh > 200 ||
+        _settings.maxSpeed < 5 || _settings.maxSpeed > 200) {
+        DEBUG_PRINTLN("RuntimeConfig: Motor speed validation failed");
+        return false;
+    }
+
+    // Swing Motion Parameters Validation
+    if (_settings.swingPeriodMs < 1000 || _settings.swingPeriodMs > 10000 ||
+        _settings.swingStepIntervalMs < 1 || _settings.swingStepIntervalMs > 100 ||
+        _settings.swingMaxAngleDegrees < 10 || _settings.swingMaxAngleDegrees > 180 ||
+        _settings.swingSpeedLowSteps < 10 || _settings.swingSpeedLowSteps > 255 ||
+        _settings.swingSpeedMediumSteps < 10 || _settings.swingSpeedMediumSteps > 255 ||
+        _settings.swingSpeedHighSteps < 10 || _settings.swingSpeedHighSteps > 300 ||
+        _settings.swingSmoothStopMs < 500 || _settings.swingSmoothStopMs > 10000) {
+        DEBUG_PRINTLN("RuntimeConfig: Swing motion validation failed");
+        return false;
+    }
+
+    // Physics Parameters Validation
+    if (_settings.pushDurationPercent < 5 || _settings.pushDurationPercent > 80 ||
+        _settings.pushPowerPercent < 50 || _settings.pushPowerPercent > 100) {
+        DEBUG_PRINTLN("RuntimeConfig: Push parameters validation failed");
+        return false;
+    }
+
+    // System Configuration Validation
+    if (_settings.pressureThreshold < 50 || _settings.pressureThreshold > 1000 ||
+        _settings.doorTimeoutMs < 5 || _settings.doorTimeoutMs > 120 ||  // Stored in seconds
+        _settings.buzzerVolume > 10 ||
+        _settings.safetyCheckInterval < 100 || _settings.safetyCheckInterval > 10000) {
+        DEBUG_PRINTLN("RuntimeConfig: System configuration validation failed");
+        return false;
+    }
+
+    DEBUG_PRINTLN("RuntimeConfig: All validation checks passed");
+    return true;
 }
+
 
 // Simple setters with validation
 bool RuntimeConfig::setWarningDistance(float value) {
@@ -165,7 +247,7 @@ bool RuntimeConfig::setPressureThreshold(uint16_t value) {
 }
 
 bool RuntimeConfig::setSpeedLow(uint16_t value) {
-    if (value < 20 || value > 50 || value >= _settings.speedMedium) {
+    if (value < 20 || value > 50) {
         return false;
     }
 
@@ -176,7 +258,7 @@ bool RuntimeConfig::setSpeedLow(uint16_t value) {
 }
 
 bool RuntimeConfig::setSpeedMedium(uint16_t value) {
-    if (value < 55 || value > 70 || value <= _settings.speedLow || value >= _settings.speedHigh) {
+    if (value < 20 || value > 70) {
         DEBUG_PRINTLN("RuntimeConfig: Medium speed out of range or invalid order");
         return false;
     }
@@ -190,7 +272,7 @@ bool RuntimeConfig::setSpeedMedium(uint16_t value) {
 }
 
 bool RuntimeConfig::setSpeedHigh(uint16_t value) {
-    if (value < 75 || value > 90 || value <= _settings.speedMedium || value > _settings.maxSpeed) {
+    if (value < 20 || value > 90) {
         DEBUG_PRINTLN("RuntimeConfig: High speed out of range or invalid order");
         return false;
     }
@@ -289,7 +371,7 @@ bool RuntimeConfig::setSwingPeriodMs(uint16_t value) {
 }
 
 bool RuntimeConfig::setSwingStepIntervalMs(uint16_t value) {
-    if (value < 5 || value > 100) {  // 5-100ms for smooth motion
+    if (value < 3 || value > 100) {  // 5-100ms for smooth motion
         DEBUG_PRINTLN("RuntimeConfig: Step interval out of range (5-100ms)");
         return false;
     }
@@ -343,7 +425,7 @@ bool RuntimeConfig::setSwingSpeedMediumSteps(uint8_t value) {
 }
 
 bool RuntimeConfig::setSwingSpeedHighSteps(uint8_t value) {
-    if (value < 1 || value > 255) {
+    if (value < 1 || value > 300) {
         DEBUG_PRINTLN("RuntimeConfig: High speed steps out of range (30-400)");
         return false;
     }
@@ -372,7 +454,7 @@ bool RuntimeConfig::setSwingSmoothStopMs(uint16_t value) {
 // ========== PENDULUM PHYSICS PARAMETERS ==========
 
 bool RuntimeConfig::setPushDurationPercent(uint8_t value) {
-    if (value < 10 || value > 50) {  // 5-50% of cycle is reasonable
+    if (value < 5 || value > 50) {  // 5-50% of cycle is reasonable
         DEBUG_PRINTLN("RuntimeConfig: Push duration out of range (5-50%)");
         return false;
     }
